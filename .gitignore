@@ -43,3 +43,19 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Environment and secrets
+.env
+.env.*
+*.jks
+*.keystore
+key.properties
+google-services.json
+GoogleService-Info.plist
+
+# Codex / tool scripts
+.codex_run_webserver.ps1
+
+# Flutter plugins
+.flutter-plugins
+.flutter-plugins-dependencies
