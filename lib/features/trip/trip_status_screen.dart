@@ -597,6 +597,7 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
     if (trip == null) {
       return const Scaffold(body: Center(child: Text('No active trip')));
     }
+    final Trip currentTrip = trip;
 
     final hasDeviationBanner = deviation != null && !isDeviationDismissed;
     final primaryAccent = isNight ? AppColors.nightAccent : AppColors.primary;
@@ -652,7 +653,7 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
             child: ValueListenableBuilder<_TripVisualState>(
               valueListenable: _visualState,
               builder: (context, state, _) => _TripTopBar(
-                trip: trip,
+                trip: currentTrip,
                 progress: state.progress,
                 onBack: () => context.goNamed(AppRoutes.homeName),
               ),
@@ -693,7 +694,7 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
                     .round();
 
                 return _TripBottomSheet(
-                  trip: trip,
+                  trip: currentTrip,
                   rideRequest: rideRequest,
                   isNight: isNight,
                   accentColor: primaryAccent,

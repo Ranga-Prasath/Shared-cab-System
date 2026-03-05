@@ -70,20 +70,6 @@ class _SafeArrivalScreenState extends ConsumerState<SafeArrivalScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final activeTrip = ref.watch(activeTripProvider);
-    final history = ref.watch(rideHistoryProvider);
-    Trip? trip;
-    if (activeTrip != null && activeTrip.id == widget.tripId) {
-      trip = activeTrip;
-    } else {
-      for (final item in history) {
-        if (item.id == widget.tripId) {
-          trip = item;
-          break;
-        }
-      }
-    }
-
     return Scaffold(
       backgroundColor: AppColors.nightPrimary,
       appBar: AppBar(

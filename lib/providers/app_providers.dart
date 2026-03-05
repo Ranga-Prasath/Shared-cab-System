@@ -50,7 +50,7 @@ final currentRideRequestProvider = StateProvider<RideRequest?>((ref) => null);
 final activeTripProvider = StateProvider<Trip?>((ref) => null);
 final rideHistoryProvider = StateProvider<List<Trip>>((ref) => []);
 
-void archiveTripToHistory(Ref ref, Trip trip) {
+void archiveTripToHistory(WidgetRef ref, Trip trip) {
   final history = ref.read(rideHistoryProvider);
   if (history.any((item) => item.id == trip.id)) return;
 
@@ -73,7 +73,7 @@ final deviationAlertDismissedProvider = StateProvider<bool>((ref) => false);
 // Recurring Rides
 final recurringRidesProvider = StateProvider<List<RecurringRide>>((ref) => []);
 
-Trip? findTripById(Ref ref, String tripId) {
+Trip? findTripById(WidgetRef ref, String tripId) {
   final active = ref.read(activeTripProvider);
   if (active != null && active.id == tripId) return active;
 
@@ -84,13 +84,13 @@ Trip? findTripById(Ref ref, String tripId) {
   return null;
 }
 
-void setLoggedIn(Ref ref, User user) {
+void setLoggedIn(WidgetRef ref, User user) {
   ref.read(isLoggedInProvider.notifier).state = true;
   ref.read(currentUserProvider.notifier).state = user;
   authStatusListenable.value = true;
 }
 
-void resetAllState(Ref ref) {
+void resetAllState(WidgetRef ref) {
   ref.read(isLoggedInProvider.notifier).state = false;
   ref.read(currentUserProvider.notifier).state = null;
   ref.read(nightModeOverrideProvider.notifier).state = null;
