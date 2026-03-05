@@ -4,7 +4,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_cab/core/router/app_routes.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
+import 'package:shared_cab/core/utils/security_utils.dart';
 import 'package:shared_cab/providers/app_providers.dart';
 import 'package:shared_cab/models/trip_model.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -30,8 +32,12 @@ class _SafeArrivalScreenState extends ConsumerState<SafeArrivalScreen> {
   }
 
   void _verifyPin() {
-    final trip = ref.read(activeTripProvider);
+    final trip = findTripById(ref, widget.tripId);
     if (trip == null) return;
+    if (!SecurityUtils.isValidOtpFormat(_pinController.text)) {
+      setState(() => _error = 'Enter a valid 4-digit PIN');
+      return;
+    }
 
     if (_pinController.text == trip.safeArrivalPin) {
       setState(() {
@@ -44,14 +50,17 @@ class _SafeArrivalScreenState extends ConsumerState<SafeArrivalScreen> {
         status: TripStatus.completed,
         endTime: DateTime.now(),
       );
-      ref.read(activeTripProvider.notifier).state = completedTrip;
+      final activeTrip = ref.read(activeTripProvider);
+      if (activeTrip != null && activeTrip.id == trip.id) {
+        ref.read(activeTripProvider.notifier).state = completedTrip;
+      }
       archiveTripToHistory(ref, completedTrip);
 
       Future.delayed(const Duration(seconds: 2), () {
         if (!mounted) return;
         context.goNamed(
-          'tripComplete',
-          pathParameters: {'tripId': widget.tripId},
+          AppRoutes.tripCompleteName,
+          pathParameters: {AppRoutes.tripIdParam: widget.tripId},
         );
       });
     } else {
@@ -61,7 +70,19 @@ class _SafeArrivalScreenState extends ConsumerState<SafeArrivalScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final trip = ref.watch(activeTripProvider);
+    final activeTrip = ref.watch(activeTripProvider);
+    final history = ref.watch(rideHistoryProvider);
+    Trip? trip;
+    if (activeTrip != null && activeTrip.id == widget.tripId) {
+      trip = activeTrip;
+    } else {
+      for (final item in history) {
+        if (item.id == widget.tripId) {
+          trip = item;
+          break;
+        }
+      }
+    }
 
     return Scaffold(
       backgroundColor: AppColors.nightPrimary,
@@ -104,26 +125,6 @@ class _SafeArrivalScreenState extends ConsumerState<SafeArrivalScreen> {
                 style: const TextStyle(color: Colors.white60, fontSize: 14),
                 textAlign: TextAlign.center,
               ).animate().fadeIn(delay: 300.ms),
-              const SizedBox(height: 8),
-              if (trip?.safeArrivalPin != null && !_verified)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.info.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    'Demo PIN: ${trip!.safeArrivalPin}',
-                    style: const TextStyle(
-                      color: AppColors.info,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ).animate().fadeIn(delay: 400.ms),
               const SizedBox(height: 32),
               if (!_verified) ...[
                 SizedBox(

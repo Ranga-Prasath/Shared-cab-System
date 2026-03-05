@@ -1,6 +1,10 @@
+// -- Shared Cab System --
+// Ride History Screen
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_cab/core/router/app_routes.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
 import 'package:shared_cab/models/trip_model.dart';
 import 'package:shared_cab/providers/app_providers.dart';
@@ -15,7 +19,9 @@ class RideHistoryScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Ride History')),
       body: history.isEmpty
-          ? _EmptyHistory(onCreateRide: () => context.goNamed('createRide'))
+          ? _EmptyHistory(
+              onCreateRide: () => context.goNamed(AppRoutes.createRideName),
+            )
           : ListView.separated(
               padding: const EdgeInsets.all(16),
               itemCount: history.length,

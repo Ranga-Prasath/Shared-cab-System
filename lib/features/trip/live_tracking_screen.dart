@@ -1,3 +1,6 @@
+// -- Shared Cab System --
+// Live Tracking Screen
+
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -6,6 +9,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:shared_cab/core/constants/app_constants.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
 import 'package:shared_cab/models/ride_request_model.dart';
 import 'package:shared_cab/providers/app_providers.dart';
@@ -75,7 +79,10 @@ class _LiveTrackingScreenState extends ConsumerState<LiveTrackingScreen>
       initialPosition = null;
     }
 
-    final fallbackPosition = const LatLng(13.0827, 80.2707);
+    final fallbackPosition = const LatLng(
+      AppConstants.fallbackLatitude,
+      AppConstants.fallbackLongitude,
+    );
     final startingPosition = initialPosition == null
         ? fallbackPosition
         : LatLng(initialPosition.latitude, initialPosition.longitude);
@@ -143,6 +150,11 @@ class _LiveTrackingScreenState extends ConsumerState<LiveTrackingScreen>
   Widget build(BuildContext context) {
     final isNightMode = ref.watch(effectiveNightModeProvider);
     final accentColor = isNightMode ? AppColors.nightAccent : AppColors.primary;
+    final trip = findTripById(ref, widget.tripId);
+
+    if (trip == null) {
+      return const Scaffold(body: Center(child: Text('Trip not found')));
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -316,7 +328,11 @@ class _LiveMapView extends StatelessWidget {
           builder: (context, _) {
             final state = visualStateListenable.value;
             final center =
-                state.currentPosition ?? const LatLng(13.0827, 80.2707);
+                state.currentPosition ??
+                const LatLng(
+                  AppConstants.fallbackLatitude,
+                  AppConstants.fallbackLongitude,
+                );
             final ride = rideRequest;
 
             return FlutterMap(
@@ -324,8 +340,8 @@ class _LiveMapView extends StatelessWidget {
               options: MapOptions(initialCenter: center, initialZoom: 15),
               children: [
                 TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.sharedcab.app',
+                  urlTemplate: AppConstants.mapTileUrl,
+                  userAgentPackageName: AppConstants.mapUserAgent,
                 ),
                 if (state.trail.length > 1)
                   PolylineLayer(

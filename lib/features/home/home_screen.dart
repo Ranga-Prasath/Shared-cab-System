@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_cab/core/router/app_routes.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
 import 'package:shared_cab/providers/app_providers.dart';
 import 'package:shared_cab/models/user_model.dart';
@@ -152,7 +153,7 @@ class HomeScreen extends ConsumerWidget {
 
   Widget _buildCreateRideCard(BuildContext context, bool isNight) {
     return InkWell(
-          onTap: () => context.goNamed('createRide'),
+          onTap: () => context.goNamed(AppRoutes.createRideName),
           borderRadius: BorderRadius.circular(20),
           child: Container(
             padding: const EdgeInsets.all(24),
@@ -269,7 +270,7 @@ class HomeScreen extends ConsumerWidget {
                 icon: Icons.contacts_outlined,
                 label: 'Emergency\nContacts',
                 color: AppColors.danger,
-                onTap: () => context.pushNamed('emergencyContacts'),
+                onTap: () => context.pushNamed(AppRoutes.emergencyContactsName),
               ),
             ),
             const SizedBox(width: 12),
@@ -278,7 +279,7 @@ class HomeScreen extends ConsumerWidget {
                 icon: Icons.event_repeat_rounded,
                 label: 'My\nSchedules',
                 color: accentColor,
-                onTap: () => context.pushNamed('recurringRides'),
+                onTap: () => context.pushNamed(AppRoutes.recurringRidesName),
               ),
             ),
           ],
@@ -291,7 +292,7 @@ class HomeScreen extends ConsumerWidget {
                 icon: Icons.history_rounded,
                 label: 'Ride\nHistory',
                 color: AppColors.info,
-                onTap: () => context.pushNamed('rideHistory'),
+                onTap: () => context.pushNamed(AppRoutes.rideHistoryName),
               ),
             ),
             const SizedBox(width: 12),

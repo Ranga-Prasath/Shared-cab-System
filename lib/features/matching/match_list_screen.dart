@@ -4,7 +4,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_cab/core/router/app_routes.dart';
+import 'package:shared_cab/core/constants/app_constants.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
+import 'package:shared_cab/core/utils/security_utils.dart';
 import 'package:shared_cab/core/utils/night_mode_utils.dart';
 import 'package:shared_cab/providers/app_providers.dart';
 import 'package:shared_cab/models/match_model.dart';
@@ -32,13 +35,39 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
   }
 
   Future<void> _searchMatches() async {
-    // Simulate search delay
-    await Future.delayed(const Duration(seconds: 2));
-    if (!mounted) return;
-    setState(() {
-      _matches = MockData.getMockMatches(widget.rideId);
-      _isSearching = false;
-    });
+    try {
+      await Future.delayed(const Duration(seconds: 2));
+      if (!mounted) return;
+
+      final currentRideRequest = ref.read(currentRideRequestProvider);
+      final currentUser = ref.read(effectiveCurrentUserProvider);
+      final enforceSameGender =
+          ref.read(sameGenderOnlyProvider) &&
+          (currentRideRequest?.isNightRide ?? false);
+
+      var matches = MockData.getMockMatches(widget.rideId);
+      if (enforceSameGender) {
+        final userGender = currentUser.gender.toLowerCase();
+        matches = matches
+            .where(
+              (match) => match.riders.every(
+                (rider) => rider.gender.toLowerCase() == userGender,
+              ),
+            )
+            .toList();
+      }
+
+      setState(() {
+        _matches = matches;
+        _isSearching = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isSearching = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to search matches. Try again.')),
+      );
+    }
 
     if (_matches.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -68,14 +97,17 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
       startTime: DateTime.now(),
       isNightTrip:
           currentRideRequest?.isNightRide ?? isNightDateTime(DateTime.now()),
-      safeArrivalPin: '4829',
+      safeArrivalPin: SecurityUtils.generateSafeArrivalPin(),
       farePerPerson: match.estimatedFarePerPerson,
-      tripDistanceKm: 14.2,
+      tripDistanceKm: match.totalFare / AppConstants.farePerKm,
     );
 
     ref.read(panicModeProvider.notifier).state = false;
     ref.read(activeTripProvider.notifier).state = trip;
-    context.goNamed('tripStatus', pathParameters: {'tripId': trip.id});
+    context.goNamed(
+      AppRoutes.tripStatusName,
+      pathParameters: {AppRoutes.tripIdParam: trip.id},
+    );
   }
 
   void _startDirectRide() {
@@ -86,7 +118,9 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
     final distanceKm = currentRideRequest.pickup.distanceTo(
       currentRideRequest.dropoff,
     );
-    final fareEstimate = (distanceKm * 22).clamp(120, 900).toDouble();
+    final fareEstimate = (distanceKm * AppConstants.farePerKm)
+        .clamp(AppConstants.minFare, AppConstants.maxFare)
+        .toDouble();
 
     final trip = Trip(
       id: 'trip_${DateTime.now().millisecondsSinceEpoch}',
@@ -95,14 +129,17 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
       status: TripStatus.waitingForPickup,
       startTime: DateTime.now(),
       isNightTrip: currentRideRequest.isNightRide,
-      safeArrivalPin: '4829',
+      safeArrivalPin: SecurityUtils.generateSafeArrivalPin(),
       farePerPerson: fareEstimate,
       tripDistanceKm: distanceKm,
     );
 
     ref.read(panicModeProvider.notifier).state = false;
     ref.read(activeTripProvider.notifier).state = trip;
-    context.goNamed('tripStatus', pathParameters: {'tripId': trip.id});
+    context.goNamed(
+      AppRoutes.tripStatusName,
+      pathParameters: {AppRoutes.tripIdParam: trip.id},
+    );
   }
 
   @override
@@ -114,7 +151,7 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
         title: const Text('Matches Found'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => context.goNamed('createRide'),
+          onPressed: () => context.goNamed(AppRoutes.createRideName),
         ),
       ),
       body: _isSearching
@@ -189,7 +226,7 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: () => context.goNamed('createRide'),
+                  onPressed: () => context.goNamed(AppRoutes.createRideName),
                   icon: const Icon(Icons.edit_location_alt_rounded),
                   label: const Text('Change Pickup / Time'),
                 ),

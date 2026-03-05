@@ -2,6 +2,7 @@
 // Core model: Recurring Ride Schedule
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_cab/core/utils/night_mode_utils.dart';
 import 'package:shared_cab/models/location_model.dart';
 
@@ -27,21 +28,24 @@ class RecurringRide {
   });
 
   RecurringRide copyWith({
+    String? id,
+    String? userId,
     bool? isActive,
     LocationPoint? pickup,
     LocationPoint? dropoff,
     TimeOfDay? departureTime,
     List<int>? activeDays,
+    DateTime? createdAt,
   }) {
     return RecurringRide(
-      id: id,
-      userId: userId,
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
       pickup: pickup ?? this.pickup,
       dropoff: dropoff ?? this.dropoff,
       departureTime: departureTime ?? this.departureTime,
-      activeDays: activeDays ?? this.activeDays,
+      activeDays: [...(activeDays ?? this.activeDays)],
       isActive: isActive ?? this.isActive,
-      createdAt: createdAt,
+      createdAt: createdAt ?? this.createdAt,
     );
   }
 
@@ -77,4 +81,64 @@ class RecurringRide {
     final hour12 = h == 0 ? 12 : (h > 12 ? h - 12 : h);
     return '$hour12:$m $period';
   }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'userId': userId,
+    'pickup': pickup.toJson(),
+    'dropoff': dropoff.toJson(),
+    'departureHour': departureTime.hour,
+    'departureMinute': departureTime.minute,
+    'activeDays': activeDays,
+    'isActive': isActive,
+    'createdAt': createdAt.toIso8601String(),
+  };
+
+  factory RecurringRide.fromJson(Map<String, dynamic> json) {
+    final days = json['activeDays'] as List<dynamic>? ?? const [];
+    return RecurringRide(
+      id: json['id'] as String,
+      userId: json['userId'] as String,
+      pickup: LocationPoint.fromJson(json['pickup'] as Map<String, dynamic>),
+      dropoff: LocationPoint.fromJson(json['dropoff'] as Map<String, dynamic>),
+      departureTime: TimeOfDay(
+        hour: (json['departureHour'] as num).toInt(),
+        minute: (json['departureMinute'] as num).toInt(),
+      ),
+      activeDays: days.map((item) => (item as num).toInt()).toList(),
+      isActive: json['isActive'] as bool? ?? true,
+      createdAt: DateTime.parse(json['createdAt'] as String),
+    );
+  }
+
+  @override
+  String toString() {
+    return 'RecurringRide(id: $id, userId: $userId, isActive: $isActive, departure: ${departureTime.hour}:${departureTime.minute})';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is RecurringRide &&
+        other.id == id &&
+        other.userId == userId &&
+        other.pickup == pickup &&
+        other.dropoff == dropoff &&
+        other.departureTime == departureTime &&
+        listEquals(other.activeDays, activeDays) &&
+        other.isActive == isActive &&
+        other.createdAt == createdAt;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    userId,
+    pickup,
+    dropoff,
+    departureTime,
+    Object.hashAll(activeDays),
+    isActive,
+    createdAt,
+  );
 }

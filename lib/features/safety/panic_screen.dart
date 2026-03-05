@@ -19,6 +19,12 @@ class PanicScreen extends ConsumerStatefulWidget {
 class _PanicScreenState extends ConsumerState<PanicScreen> {
   bool _alertSent = false;
 
+  void _showEmergencyDial(String number) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Dial action for $number is demo-only.')),
+    );
+  }
+
   void _triggerAlert() {
     setState(() => _alertSent = true);
     ref.read(panicModeProvider.notifier).state = true;
@@ -113,19 +119,19 @@ class _PanicScreenState extends ConsumerState<PanicScreen> {
                     _EmergencyDialButton(
                       icon: Icons.local_police_outlined,
                       label: '100',
-                      onTap: () {},
+                      onTap: () => _showEmergencyDial('100'),
                     ),
                     const SizedBox(width: 24),
                     _EmergencyDialButton(
                       icon: Icons.local_hospital_outlined,
                       label: '108',
-                      onTap: () {},
+                      onTap: () => _showEmergencyDial('108'),
                     ),
                     const SizedBox(width: 24),
                     _EmergencyDialButton(
                       icon: Icons.emergency_outlined,
                       label: '112',
-                      onTap: () {},
+                      onTap: () => _showEmergencyDial('112'),
                     ),
                   ],
                 ).animate().fadeIn(delay: 400.ms),

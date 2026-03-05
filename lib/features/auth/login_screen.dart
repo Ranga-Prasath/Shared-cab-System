@@ -4,7 +4,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_cab/core/router/app_routes.dart';
 import 'package:shared_cab/core/utils/night_mode_utils.dart';
+import 'package:shared_cab/core/utils/security_utils.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
@@ -162,6 +164,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     if (value == null || value.isEmpty) {
                       return 'Please enter your phone number';
                     }
+                    if (!SecurityUtils.isValidPhone(value)) {
+                      return 'Enter a valid phone number';
+                    }
                     return null;
                   },
                 ).animate().fadeIn(delay: 800.ms),
@@ -172,7 +177,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ElevatedButton(
                       onPressed: () {
                         if (_formKey.currentState!.validate()) {
-                          context.goNamed('otp', extra: _phoneController.text);
+                          context.goNamed(
+                            AppRoutes.otpName,
+                            extra: _phoneController.text.trim(),
+                          );
                         }
                       },
                       child: const Row(

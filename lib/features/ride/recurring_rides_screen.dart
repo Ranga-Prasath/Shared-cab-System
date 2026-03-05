@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_cab/core/router/app_routes.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
 import 'package:shared_cab/providers/app_providers.dart';
 import 'package:shared_cab/models/recurring_ride_model.dart';
@@ -66,14 +67,14 @@ class _RecurringRidesScreenState extends ConsumerState<RecurringRidesScreen> {
         title: const Text('My Schedules'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => context.goNamed('home'),
+          onPressed: () => context.goNamed(AppRoutes.homeName),
         ),
       ),
       body: rides.isEmpty
           ? _buildEmptyState(context)
           : _buildList(rides, accentColor, isNight),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.pushNamed('createRecurringRide'),
+        onPressed: () => context.pushNamed(AppRoutes.createRecurringRideName),
         icon: const Icon(Icons.add_rounded),
         label: const Text('New Schedule'),
         backgroundColor: accentColor,

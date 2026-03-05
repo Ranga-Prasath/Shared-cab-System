@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_cab/core/router/app_routes.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
 import 'package:shared_cab/providers/app_providers.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -24,16 +25,19 @@ class _RatingScreenState extends ConsumerState<RatingScreen> {
   void _submit() {
     if (_rating == 0) return;
     setState(() => _submitted = true);
-    final trip = ref.read(activeTripProvider);
+    final trip = findTripById(ref, widget.tripId);
     if (trip != null) {
       archiveTripToHistory(ref, trip);
     }
-    ref.read(activeTripProvider.notifier).state = null;
+    final activeTrip = ref.read(activeTripProvider);
+    if (activeTrip != null && activeTrip.id == widget.tripId) {
+      ref.read(activeTripProvider.notifier).state = null;
+    }
     ref.read(panicModeProvider.notifier).state = false;
 
     Future.delayed(const Duration(seconds: 2), () {
       if (!mounted) return;
-      context.goNamed('home');
+      context.goNamed(AppRoutes.homeName);
     });
   }
 

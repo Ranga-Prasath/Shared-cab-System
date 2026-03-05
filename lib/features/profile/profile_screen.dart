@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_cab/core/router/app_routes.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
 import 'package:shared_cab/providers/app_providers.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -92,7 +93,7 @@ class ProfileScreen extends ConsumerWidget {
                 icon: Icons.contacts_outlined,
                 label: 'Emergency Contacts',
                 subtitle: '${user.emergencyContacts.length} contacts',
-                onTap: () => context.pushNamed('emergencyContacts'),
+                onTap: () => context.pushNamed(AppRoutes.emergencyContactsName),
               ),
               _ProfileMenuItem(
                 icon: Icons.nightlight_round,
@@ -129,14 +130,8 @@ class ProfileScreen extends ConsumerWidget {
                 width: double.infinity,
                 child: OutlinedButton.icon(
                   onPressed: () {
-                    ref.read(isLoggedInProvider.notifier).state = false;
-                    ref.read(currentUserProvider.notifier).state = null;
-                    ref.read(activeTripProvider.notifier).state = null;
-                    ref.read(rideHistoryProvider.notifier).state = [];
-                    ref.read(currentRideRequestProvider.notifier).state = null;
-                    ref.read(panicModeProvider.notifier).state = false;
-                    ref.read(bottomNavIndexProvider.notifier).state = 0;
-                    context.goNamed('login');
+                    resetAllState(ref);
+                    context.goNamed(AppRoutes.loginName);
                   },
                   icon: const Icon(
                     Icons.logout_rounded,

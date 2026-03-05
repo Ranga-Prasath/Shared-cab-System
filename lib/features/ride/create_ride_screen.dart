@@ -7,8 +7,11 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:shared_cab/core/constants/app_constants.dart';
+import 'package:shared_cab/core/router/app_routes.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
 import 'package:shared_cab/core/utils/night_mode_utils.dart';
+import 'package:shared_cab/core/utils/security_utils.dart';
 import 'package:shared_cab/data/mock/mock_data.dart';
 import 'package:shared_cab/models/location_model.dart';
 import 'package:shared_cab/models/ride_request_model.dart';
@@ -126,7 +129,9 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
 
     if (startNow) {
       final distanceKm = ride.pickup.distanceTo(ride.dropoff);
-      final fareEstimate = (distanceKm * 22).clamp(120, 900).toDouble();
+      final fareEstimate = (distanceKm * AppConstants.farePerKm)
+          .clamp(AppConstants.minFare, AppConstants.maxFare)
+          .toDouble();
 
       final trip = Trip(
         id: 'trip_${DateTime.now().millisecondsSinceEpoch}',
@@ -135,7 +140,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
         status: TripStatus.waitingForPickup,
         startTime: DateTime.now(),
         isNightTrip: ride.isNightRide,
-        safeArrivalPin: '4829',
+        safeArrivalPin: SecurityUtils.generateSafeArrivalPin(),
         farePerPerson: fareEstimate,
         tripDistanceKm: distanceKm,
       );
@@ -148,7 +153,10 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
         _isCreating = false;
         _pendingAction = null;
       });
-      context.goNamed('tripStatus', pathParameters: {'tripId': trip.id});
+      context.goNamed(
+        AppRoutes.tripStatusName,
+        pathParameters: {AppRoutes.tripIdParam: trip.id},
+      );
       return;
     }
 
@@ -157,7 +165,10 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
       _isCreating = false;
       _pendingAction = null;
     });
-    context.goNamed('matches', pathParameters: {'rideId': ride.id});
+    context.goNamed(
+      AppRoutes.matchesName,
+      pathParameters: {AppRoutes.rideIdParam: ride.id},
+    );
   }
 
   void _focusRouteOrPickup() {
@@ -218,7 +229,10 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
     final dropoff = _dropoff;
 
     final center = pickup == null
-        ? const LatLng(13.0827, 80.2707)
+        ? const LatLng(
+            AppConstants.fallbackLatitude,
+            AppConstants.fallbackLongitude,
+          )
         : LatLng(pickup.latitude, pickup.longitude);
 
     return Container(
@@ -240,8 +254,8 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
             ),
             children: [
               TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.sharedcab.app',
+                urlTemplate: AppConstants.mapTileUrl,
+                userAgentPackageName: AppConstants.mapUserAgent,
               ),
               if (pickup != null && dropoff != null)
                 PolylineLayer(
@@ -350,7 +364,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
         title: const Text('Create Ride'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => context.goNamed('home'),
+          onPressed: () => context.goNamed(AppRoutes.homeName),
         ),
       ),
       body: SingleChildScrollView(

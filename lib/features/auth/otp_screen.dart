@@ -4,7 +4,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_cab/core/constants/app_constants.dart';
+import 'package:shared_cab/core/router/app_routes.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
+import 'package:shared_cab/core/utils/security_utils.dart';
 import 'package:shared_cab/providers/app_providers.dart';
 import 'package:shared_cab/data/mock/mock_data.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -25,6 +28,9 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
   );
   final List<FocusNode> _focusNodes = List.generate(4, (_) => FocusNode());
   bool _isVerifying = false;
+  int _failedAttempts = 0;
+  DateTime? _lockedUntil;
+  String? _errorText;
 
   @override
   void dispose() {
@@ -55,18 +61,45 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
 
   Future<void> _verifyOtp(String otp) async {
     if (_isVerifying) return;
+    final lock = _lockedUntil;
+    if (lock != null && DateTime.now().isBefore(lock)) {
+      final seconds = lock.difference(DateTime.now()).inSeconds.clamp(1, 999);
+      setState(
+        () => _errorText = 'Too many attempts. Try again in ${seconds}s',
+      );
+      return;
+    }
+
+    if (!SecurityUtils.isValidOtpFormat(otp)) {
+      setState(() => _errorText = 'Enter a valid 4-digit OTP');
+      return;
+    }
+
     setState(() => _isVerifying = true);
 
     // Simulate verification delay
     await Future.delayed(const Duration(milliseconds: 1200));
 
     if (!mounted) return;
+    if (otp != AppConstants.demoOtp) {
+      _failedAttempts += 1;
+      if (_failedAttempts >= AppConstants.maxOtpAttempts) {
+        _lockedUntil = DateTime.now().add(
+          const Duration(seconds: AppConstants.otpLockDurationSeconds),
+        );
+        _failedAttempts = 0;
+      }
+      setState(() {
+        _isVerifying = false;
+        _errorText = 'Incorrect OTP. Please try again.';
+      });
+      return;
+    }
 
-    // Mock: any 4-digit OTP works
-    ref.read(isLoggedInProvider.notifier).state = true;
-    ref.read(currentUserProvider.notifier).state = MockData.demoUser;
-
-    context.goNamed('home');
+    _failedAttempts = 0;
+    _lockedUntil = null;
+    setLoggedIn(ref, MockData.demoUser);
+    context.goNamed(AppRoutes.homeName);
   }
 
   @override
@@ -75,7 +108,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => context.goNamed('login'),
+          onPressed: () => context.goNamed(AppRoutes.loginName),
         ),
       ),
       body: SafeArea(
@@ -147,6 +180,15 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
               ),
 
               const SizedBox(height: 32),
+              if (_errorText != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Text(
+                    _errorText!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: AppColors.danger),
+                  ),
+                ),
 
               if (_isVerifying)
                 const Center(
@@ -174,7 +216,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        'Demo Mode: Enter any 4 digits to continue',
+                        'Demo Mode: Use OTP ${AppConstants.demoOtp}',
                         style: Theme.of(
                           context,
                         ).textTheme.bodySmall?.copyWith(color: AppColors.info),

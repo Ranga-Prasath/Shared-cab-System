@@ -4,7 +4,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_cab/core/router/app_routes.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
+import 'package:shared_cab/models/trip_model.dart';
 import 'package:shared_cab/providers/app_providers.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
@@ -15,7 +17,19 @@ class TripCompleteScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final trip = ref.watch(activeTripProvider);
+    final activeTrip = ref.watch(activeTripProvider);
+    final history = ref.watch(rideHistoryProvider);
+    Trip? trip;
+    if (activeTrip != null && activeTrip.id == tripId) {
+      trip = activeTrip;
+    } else {
+      for (final item in history) {
+        if (item.id == tripId) {
+          trip = item;
+          break;
+        }
+      }
+    }
 
     return Scaffold(
       body: SafeArea(
@@ -107,8 +121,8 @@ class TripCompleteScreen extends ConsumerWidget {
                       archiveTripToHistory(ref, trip);
                     }
                     context.goNamed(
-                      'rating',
-                      pathParameters: {'tripId': tripId},
+                      AppRoutes.ratingName,
+                      pathParameters: {AppRoutes.tripIdParam: tripId},
                     );
                   },
                   icon: const Icon(Icons.star_outline_rounded),
@@ -121,9 +135,12 @@ class TripCompleteScreen extends ConsumerWidget {
                   if (trip != null) {
                     archiveTripToHistory(ref, trip);
                   }
-                  ref.read(activeTripProvider.notifier).state = null;
+                  final active = ref.read(activeTripProvider);
+                  if (active != null && active.id == tripId) {
+                    ref.read(activeTripProvider.notifier).state = null;
+                  }
                   ref.read(panicModeProvider.notifier).state = false;
-                  context.goNamed('home');
+                  context.goNamed(AppRoutes.homeName);
                 },
                 child: const Text('Skip & Go Home'),
               ),

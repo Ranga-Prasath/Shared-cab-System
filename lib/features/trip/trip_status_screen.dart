@@ -1,3 +1,6 @@
+// -- Shared Cab System --
+// Trip Status Screen
+
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -7,6 +10,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:shared_cab/core/constants/app_constants.dart';
+import 'package:shared_cab/core/router/app_routes.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
 import 'package:shared_cab/data/mock/mock_data.dart';
 import 'package:shared_cab/models/ride_request_model.dart';
@@ -262,7 +267,7 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
   }
 
   void _updateTripMilestones(double progress) {
-    final trip = ref.read(activeTripProvider);
+    final trip = _currentActiveTripForRoute();
     if (trip == null) return;
 
     final reachedPickup = _visualState.value.segmentIndex >= _pickupRouteIndex;
@@ -282,7 +287,7 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
   }
 
   void _onTripArrived() {
-    final trip = ref.read(activeTripProvider);
+    final trip = _currentActiveTripForRoute();
     if (trip == null) return;
 
     final destination = _routePoints.isEmpty ? null : _routePoints.last;
@@ -333,6 +338,12 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
 
   void _dismissDeviation() {
     ref.read(deviationAlertDismissedProvider.notifier).state = true;
+  }
+
+  Trip? _currentActiveTripForRoute() {
+    final active = ref.read(activeTripProvider);
+    if (active == null || active.id != widget.tripId) return null;
+    return active;
   }
 
   void _alertContacts() {
@@ -401,7 +412,7 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
       if (upcoming.length > 1)
         Polyline(
           points: upcoming,
-          color: hasDeviation ? AppColors.danger : const Color(0xFF0F3D91),
+          color: hasDeviation ? AppColors.danger : AppColors.info,
           strokeWidth: 8,
         ),
       ...simulatedTraffic,
@@ -564,7 +575,20 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
 
   @override
   Widget build(BuildContext context) {
-    final trip = ref.watch(activeTripProvider);
+    final activeTrip = ref.watch(activeTripProvider);
+    final history = ref.watch(rideHistoryProvider);
+    Trip? trip;
+    if (activeTrip != null && activeTrip.id == widget.tripId) {
+      trip = activeTrip;
+    } else {
+      for (final item in history) {
+        if (item.id == widget.tripId) {
+          trip = item;
+          break;
+        }
+      }
+    }
+
     final rideRequest = ref.watch(currentRideRequestProvider);
     final isNight = ref.watch(effectiveNightModeProvider);
     final deviation = ref.watch(routeDeviationProvider);
@@ -598,9 +622,8 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
                 ),
                 children: [
                   TileLayer(
-                    urlTemplate:
-                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                    userAgentPackageName: 'com.sharedcab.app',
+                    urlTemplate: AppConstants.mapTileUrl,
+                    userAgentPackageName: AppConstants.mapUserAgent,
                   ),
                   if (_routePoints.length > 1)
                     PolylineLayer(
@@ -631,7 +654,7 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
               builder: (context, state, _) => _TripTopBar(
                 trip: trip,
                 progress: state.progress,
-                onBack: () => context.goNamed('home'),
+                onBack: () => context.goNamed(AppRoutes.homeName),
               ),
             ),
           ),
@@ -1143,8 +1166,8 @@ class _TripBottomSheet extends StatelessWidget {
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: () => context.pushNamed(
-                    'liveTracking',
-                    pathParameters: {'tripId': trip.id},
+                    AppRoutes.liveTrackingName,
+                    pathParameters: {AppRoutes.tripIdParam: trip.id},
                   ),
                   icon: const Icon(Icons.satellite_alt_rounded, size: 16),
                   label: const Text('GPS', style: TextStyle(fontSize: 12)),
@@ -1162,7 +1185,7 @@ class _TripBottomSheet extends StatelessWidget {
               if (trip.isNightTrip || isNight)
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: () => context.pushNamed('panic'),
+                    onPressed: () => context.pushNamed(AppRoutes.panicName),
                     icon: const Icon(Icons.sos_rounded, size: 16),
                     label: const Text('SOS', style: TextStyle(fontSize: 12)),
                     style: ElevatedButton.styleFrom(
@@ -1183,13 +1206,13 @@ class _TripBottomSheet extends StatelessWidget {
                     onPressed: () {
                       if (trip.isNightTrip || isNight) {
                         context.goNamed(
-                          'safeArrival',
-                          pathParameters: {'tripId': trip.id},
+                          AppRoutes.safeArrivalName,
+                          pathParameters: {AppRoutes.tripIdParam: trip.id},
                         );
                       } else {
                         context.goNamed(
-                          'tripComplete',
-                          pathParameters: {'tripId': trip.id},
+                          AppRoutes.tripCompleteName,
+                          pathParameters: {AppRoutes.tripIdParam: trip.id},
                         );
                       }
                     },

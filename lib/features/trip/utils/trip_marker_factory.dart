@@ -1,5 +1,5 @@
-// Legacy placeholder kept for compatibility with earlier map experiments.
-// The current no-key demo mode uses flutter_map widget markers instead.
+// -- Shared Cab System --
+// Legacy marker factory placeholder.
 
 class TripMapIcons {
   const TripMapIcons();

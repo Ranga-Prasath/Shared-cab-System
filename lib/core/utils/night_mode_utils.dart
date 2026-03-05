@@ -1,3 +1,6 @@
+// -- Shared Cab System --
+// Night mode helpers
+
 import 'package:flutter/material.dart';
 
 bool isNightHour(int hour) => hour >= 21 || hour < 6;

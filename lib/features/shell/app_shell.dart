@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_cab/core/router/app_routes.dart';
 import 'package:shared_cab/providers/app_providers.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
 
@@ -14,7 +15,8 @@ class AppShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final currentIndex = ref.watch(bottomNavIndexProvider);
+    final path = GoRouterState.of(context).uri.path;
+    final currentIndex = path == AppRoutes.profilePath ? 1 : 0;
     final isNight = ref.watch(effectiveNightModeProvider);
 
     return Scaffold(
@@ -33,13 +35,12 @@ class AppShell extends ConsumerWidget {
         child: NavigationBar(
           selectedIndex: currentIndex,
           onDestinationSelected: (index) {
-            ref.read(bottomNavIndexProvider.notifier).state = index;
             switch (index) {
               case 0:
-                context.goNamed('home');
+                context.goNamed(AppRoutes.homeName);
                 break;
               case 1:
-                context.goNamed('profile');
+                context.goNamed(AppRoutes.profileName);
                 break;
             }
           },
