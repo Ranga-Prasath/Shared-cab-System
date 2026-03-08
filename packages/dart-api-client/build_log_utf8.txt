@@ -1,0 +1,199 @@
+﻿  Generating the build script.
+  Reading the asset graph.
+  Checking for updates.
+  Updating the asset graph.
+  Building, incremental build.
+  0s json_serializable on 62 inputs; lib/shared_cab_api_client.dart
+  0s json_serializable on 62 inputs: 1 skipped; lib/src/api.dart
+  0s json_serializable on 62 inputs: 62 skipped
+  0s copy_with_extension_gen on 62 inputs; lib/shared_cab_api_client.dart
+  0s copy_with_extension_gen on 62 inputs: 62 skipped
+  0s source_gen:combining_builder on 62 inputs; lib/shared_cab_api_client.dart
+  0s source_gen:combining_builder on 62 inputs: 62 skipped
+  Running the post build.
+  Writing the asset graph.
+E json_serializable on lib/src/model/api_success.dart:
+  An error `FormatterException` occurred while formatting the generated source for
+    `package:shared_cab_api_client/src/model/api_success.dart`
+  which was output to
+    `lib/src/model/api_success.json_serializable.g.part`.
+  This may indicate an issue in the generator, the input source code, or in the
+  source formatter.
+  Could not format because the source could not be parsed:
+  
+  line 20, column 17 of .: This requires the 'null-aware-elements' language feature to be enabled.
+     Γò╖
+  20 Γöé         'data': ?instance.data,
+     Γöé                 ^
+     Γò╡
+E json_serializable on lib/src/model/api_v1_auth_signup_post201_response.dart:
+  An error `FormatterException` occurred while formatting the generated source for
+    `package:shared_cab_api_client/src/model/api_v1_auth_signup_post201_response.dart`
+  which was output to
+    `lib/src/model/api_v1_auth_signup_post201_response.json_serializable.g.part`.
+  This may indicate an issue in the generator, the input source code, or in the
+  source formatter.
+  Could not format because the source could not be parsed:
+  
+  line 20, column 17 of .: This requires the 'null-aware-elements' language feature to be enabled.
+     Γò╖
+  20 Γöé         'data': ?instance.data?.toJson( ),
+     Γöé                 ^
+     Γò╡
+E json_serializable on lib/src/model/api_v1_rides_get200_response.dart:
+  An error `FormatterException` occurred while formatting the generated source for
+    `package:shared_cab_api_client/src/model/api_v1_rides_get200_response.dart`
+  which was output to
+    `lib/src/model/api_v1_rides_get200_response.json_serializable.g.part`.
+  This may indicate an issue in the generator, the input source code, or in the
+  source formatter.
+  Could not format because the source could not be parsed:
+  
+  line 20, column 17 of .: This requires the 'null-aware-elements' language feature to be enabled.
+     Γò╖
+  20 Γöé         'data': ?instance.data?.map((e) => e.toJson( )).toList(),
+     Γöé                 ^
+     Γò╡
+E json_serializable on lib/src/model/api_v1_rides_id_match_post200_response.dart:
+  An error `FormatterException` occurred while formatting the generated source for
+    `package:shared_cab_api_client/src/model/api_v1_rides_id_match_post200_response.dart`
+  which was output to
+    `lib/src/model/api_v1_rides_id_match_post200_response.json_serializable.g.part`.
+  This may indicate an issue in the generator, the input source code, or in the
+  source formatter.
+  Could not format because the source could not be parsed:
+  
+  line 20, column 17 of .: This requires the 'null-aware-elements' language feature to be enabled.
+     Γò╖
+  20 Γöé         'data': ?instance.data?.map((e) => e.toJson( )).toList(),
+     Γöé                 ^
+     Γò╡
+E json_serializable on lib/src/model/api_v1_rides_id_route_get200_response.dart:
+  An error `FormatterException` occurred while formatting the generated source for
+    `package:shared_cab_api_client/src/model/api_v1_rides_id_route_get200_response.dart`
+  which was output to
+    `lib/src/model/api_v1_rides_id_route_get200_response.json_serializable.g.part`.
+  This may indicate an issue in the generator, the input source code, or in the
+  source formatter.
+  Could not format because the source could not be parsed:
+  
+  line 20, column 17 of .: This requires the 'null-aware-elements' language feature to be enabled.
+     Γò╖
+  20 Γöé         'data': ?instance.data?.toJson( ),
+     Γöé                 ^
+     Γò╡
+E json_serializable on lib/src/model/api_v1_rides_post201_response.dart:
+  An error `FormatterException` occurred while formatting the generated source for
+    `package:shared_cab_api_client/src/model/api_v1_rides_post201_response.dart`
+  which was output to
+    `lib/src/model/api_v1_rides_post201_response.json_serializable.g.part`.
+  This may indicate an issue in the generator, the input source code, or in the
+  source formatter.
+  Could not format because the source could not be parsed:
+  
+  line 20, column 17 of .: This requires the 'null-aware-elements' language feature to be enabled.
+     Γò╖
+  20 Γöé         'data': ?instance.data?.toJson( ),
+     Γöé                 ^
+     Γò╡
+E json_serializable on lib/src/model/api_v1_users_me_get200_response.dart:
+  An error `FormatterException` occurred while formatting the generated source for
+    `package:shared_cab_api_client/src/model/api_v1_users_me_get200_response.dart`
+  which was output to
+    `lib/src/model/api_v1_users_me_get200_response.json_serializable.g.part`.
+  This may indicate an issue in the generator, the input source code, or in the
+  source formatter.
+  Could not format because the source could not be parsed:
+  
+  line 20, column 17 of .: This requires the 'null-aware-elements' language feature to be enabled.
+     Γò╖
+  20 Γöé         'data': ?instance.data?.toJson( ),
+     Γöé                 ^
+     Γò╡
+E json_serializable on lib/src/model/match_trigger_request.dart:
+  An error `FormatterException` occurred while formatting the generated source for
+    `package:shared_cab_api_client/src/model/match_trigger_request.dart`
+  which was output to
+    `lib/src/model/match_trigger_request.json_serializable.g.part`.
+  This may indicate an issue in the generator, the input source code, or in the
+  source formatter.
+  Could not format because the source could not be parsed:
+  
+  line 17, column 33 of .: This requires the 'null-aware-elements' language feature to be enabled.
+     Γò╖
+  17 Γöé         'minOverlapPercentage': ?instance.minOverlapPercentage,
+     Γöé                                 ^
+     Γò╡
+E json_serializable on lib/src/model/profile.dart:
+  An error `FormatterException` occurred while formatting the generated source for
+    `package:shared_cab_api_client/src/model/profile.dart`
+  which was output to
+    `lib/src/model/profile.json_serializable.g.part`.
+  This may indicate an issue in the generator, the input source code, or in the
+  source formatter.
+  Could not format because the source could not be parsed:
+  
+  line 27, column 22 of .: This requires the 'null-aware-elements' language feature to be enabled.
+     Γò╖
+  27 Γöé         'avatarUrl': ?instance.avatarUrl,
+     Γöé                      ^
+     Γò╡
+E json_serializable on lib/src/model/ride.dart:
+  An error `FormatterException` occurred while formatting the generated source for
+    `package:shared_cab_api_client/src/model/ride.dart`
+  which was output to
+    `lib/src/model/ride.json_serializable.g.part`.
+  This may indicate an issue in the generator, the input source code, or in the
+  source formatter.
+  Could not format because the source could not be parsed:
+  
+  line 35, column 21 of .: This requires the 'null-aware-elements' language feature to be enabled.
+     Γò╖
+  35 Γöé         'driverId': ?instance.driverId,
+     Γöé                     ^
+     Γò╡
+  line 43, column 23 of .: This requires the 'null-aware-elements' language feature to be enabled.
+     Γò╖
+  43 Γöé         'actualFare': ?instance.actualFare,
+     Γöé                       ^
+     Γò╡
+  line 44, column 24 of .: This requires the 'null-aware-elements' language feature to be enabled.
+     Γò╖
+  44 Γöé         'scheduledAt': ?instance.scheduledAt?.toIso8601String(),
+     Γöé                        ^
+     Γò╡
+  line 45, column 22 of .: This requires the 'null-aware-elements' language feature to be enabled.
+     Γò╖
+  45 Γöé         'startedAt': ?instance.startedAt?.toIso8601String(),
+     Γöé                      ^
+     Γò╡
+  line 46, column 24 of .: This requires the 'null-aware-elements' language feature to be enabled.
+     Γò╖
+  46 Γöé         'completedAt': ?instance.completedAt?.toIso8601String(),
+     Γöé                        ^
+     Γò╡
+E json_serializable on lib/src/model/update_profile_request.dart:
+  An error `FormatterException` occurred while formatting the generated source for
+    `package:shared_cab_api_client/src/model/update_profile_request.dart`
+  which was output to
+    `lib/src/model/update_profile_request.json_serializable.g.part`.
+  This may indicate an issue in the generator, the input source code, or in the
+  source formatter.
+  Could not format because the source could not be parsed:
+  
+  line 19, column 21 of .: This requires the 'null-aware-elements' language feature to be enabled.
+     Γò╖
+  19 Γöé         'fullName': ?instance.fullName,
+     Γöé                     ^
+     Γò╡
+  line 20, column 18 of .: This requires the 'null-aware-elements' language feature to be enabled.
+     Γò╖
+  20 Γöé         'phone': ?instance.phone,
+     Γöé                  ^
+     Γò╡
+  line 21, column 22 of .: This requires the 'null-aware-elements' language feature to be enabled.
+     Γò╖
+  21 Γöé         'avatarUrl': ?instance.avatarUrl,
+     Γöé                      ^
+     Γò╡
+  Failed to build with build_runner in 1s; wrote 0 outputs.

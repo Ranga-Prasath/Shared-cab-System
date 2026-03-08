@@ -1,0 +1,19 @@
+# shared_cab_api_client.model.MatchResult
+
+## Load the model package
+```dart
+import 'package:shared_cab_api_client/api.dart';
+```
+
+## Properties
+Name | Type | Description | Notes
+------------ | ------------- | ------------- | -------------
+**rideId** | **String** |  | 
+**matchedRideId** | **String** |  | 
+**overlapPercentage** | **num** |  | 
+**detourMeters** | **int** |  | 
+**status** | **String** |  | 
+
+[[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
+
+

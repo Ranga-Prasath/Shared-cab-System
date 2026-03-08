@@ -1,0 +1,533 @@
+openapi: 3.1.0
+info:
+  title: Shared Cab Platform API
+  version: 1.0.0
+  description: API contract for shared cab rides, matching, routing, and user profiles.
+servers:
+  - url: http://localhost:4000
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ApiSuccess:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+          const: true
+        data:
+          type: object
+          additionalProperties: true
+    ApiError:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          const: false
+        error:
+          type: string
+    Coordinate:
+      type: array
+      description: GeoJSON order [longitude, latitude]
+      minItems: 2
+      maxItems: 2
+      prefixItems:
+        - type: number
+          minimum: -180
+          maximum: 180
+        - type: number
+          minimum: -90
+          maximum: 90
+    RideStatus:
+      type: string
+      enum: [REQUESTED, MATCHED, EN_ROUTE, COMPLETED, CANCELLED]
+    UserRole:
+      type: string
+      enum: [passenger, driver, admin]
+    Profile:
+      type: object
+      required: [id, fullName, phone, role, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+        phone:
+          type: string
+        avatarUrl:
+          type: string
+          nullable: true
+        role:
+          $ref: '#/components/schemas/UserRole'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    Ride:
+      type: object
+      required:
+        - id
+        - passengerId
+        - status
+        - pickupLocation
+        - dropoffLocation
+        - pickupAddress
+        - dropoffAddress
+        - routePolyline
+        - estimatedFare
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        passengerId:
+          type: string
+          format: uuid
+        driverId:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          $ref: '#/components/schemas/RideStatus'
+        pickupLocation:
+          $ref: '#/components/schemas/Coordinate'
+        dropoffLocation:
+          $ref: '#/components/schemas/Coordinate'
+        pickupAddress:
+          type: string
+        dropoffAddress:
+          type: string
+        routePolyline:
+          type: string
+        estimatedFare:
+          type: number
+        actualFare:
+          type: number
+          nullable: true
+        scheduledAt:
+          type: string
+          format: date-time
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    SignupRequest:
+      type: object
+      required: [email, password, fullName, phone]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        fullName:
+          type: string
+        phone:
+          type: string
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+    UpdateProfileRequest:
+      type: object
+      properties:
+        fullName:
+          type: string
+        phone:
+          type: string
+        avatarUrl:
+          type: string
+    CreateRideRequest:
+      type: object
+      required: [pickupLocation, dropoffLocation, pickupAddress, dropoffAddress, scheduledAt]
+      properties:
+        pickupLocation:
+          $ref: '#/components/schemas/Coordinate'
+        dropoffLocation:
+          $ref: '#/components/schemas/Coordinate'
+        pickupAddress:
+          type: string
+        dropoffAddress:
+          type: string
+        scheduledAt:
+          type: string
+          format: date-time
+    UpdateRideStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/RideStatus'
+    MatchTriggerRequest:
+      type: object
+      properties:
+        minOverlapPercentage:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 0.4
+    DirectionsRequest:
+      type: object
+      required: [start, end]
+      properties:
+        start:
+          $ref: '#/components/schemas/Coordinate'
+        end:
+          $ref: '#/components/schemas/Coordinate'
+    DirectionsResponse:
+      type: object
+      required: [distanceMeters, durationSeconds, polyline]
+      properties:
+        distanceMeters:
+          type: number
+        durationSeconds:
+          type: number
+        polyline:
+          type: string
+    MatchResult:
+      type: object
+      required: [rideId, matchedRideId, overlapPercentage, detourMeters, status]
+      properties:
+        rideId:
+          type: string
+          format: uuid
+        matchedRideId:
+          type: string
+          format: uuid
+        overlapPercentage:
+          type: number
+        detourMeters:
+          type: integer
+        status:
+          type: string
+          enum: [proposed, accepted, rejected]
+paths:
+  /api/v1/auth/signup:
+    post:
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignupRequest'
+      responses:
+        '201':
+          description: Signup success
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccess'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [accessToken, refreshToken]
+                        properties:
+                          accessToken:
+                            type: string
+                          refreshToken:
+                            type: string
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login success
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccess'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [accessToken, refreshToken]
+                        properties:
+                          accessToken:
+                            type: string
+                          refreshToken:
+                            type: string
+  /api/v1/users/me:
+    get:
+      tags: [Users]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Current profile
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccess'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Profile'
+    patch:
+      tags: [Users]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccess'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Profile'
+  /api/v1/rides:
+    post:
+      tags: [Rides]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRideRequest'
+      responses:
+        '201':
+          description: Ride created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccess'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Ride'
+    get:
+      tags: [Rides]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: User rides
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccess'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Ride'
+  /api/v1/rides/{id}:
+    get:
+      tags: [Rides]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Ride detail
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccess'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Ride'
+  /api/v1/rides/{id}/status:
+    patch:
+      tags: [Rides]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRideStatusRequest'
+      responses:
+        '200':
+          description: Ride status updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccess'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Ride'
+  /api/v1/rides/{id}/match:
+    post:
+      tags: [Matching]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchTriggerRequest'
+      responses:
+        '200':
+          description: Match candidates
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccess'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/MatchResult'
+  /api/v1/rides/{id}/route:
+    get:
+      tags: [Routing]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Ride route
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccess'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/DirectionsResponse'
+  /api/v1/routing/directions:
+    post:
+      tags: [Routing]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DirectionsRequest'
+      responses:
+        '200':
+          description: Directions response
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccess'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/DirectionsResponse'
+  /api/v1/matching/available:
+    get:
+      tags: [Matching]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: pickupLon
+          required: true
+          schema:
+            type: number
+        - in: query
+          name: pickupLat
+          required: true
+          schema:
+            type: number
+        - in: query
+          name: dropoffLon
+          required: true
+          schema:
+            type: number
+        - in: query
+          name: dropoffLat
+          required: true
+          schema:
+            type: number
+      responses:
+        '200':
+          description: Matchable rides
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccess'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/MatchResult'

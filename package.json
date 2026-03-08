@@ -1,0 +1,17 @@
+{
+  "name": "shared-cab-platform",
+  "private": true,
+  "packageManager": "pnpm@10.7.0",
+  "scripts": {
+    "build": "corepack pnpm -r build",
+    "dev": "turbo run dev --parallel",
+    "lint": "corepack pnpm -r lint",
+    "test": "corepack pnpm -r test",
+    "db:seed": "corepack pnpm --filter @shared-cab/api db:seed",
+    "generate:api:dart": "node scripts/generate-dart-client.mjs"
+  },
+  "devDependencies": {
+    "@openapitools/openapi-generator-cli": "^2.30.2",
+    "turbo": "^2.5.0"
+  }
+}
