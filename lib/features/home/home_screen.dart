@@ -34,6 +34,10 @@ class HomeScreen extends ConsumerWidget {
 
               // Quick action: Create Ride
               _buildCreateRideCard(context, isNight),
+              const SizedBox(height: 14),
+
+              // Available Rides card
+              _buildAvailableRidesCard(context, isNight),
               const SizedBox(height: 20),
 
               // Stats row
@@ -256,6 +260,80 @@ class HomeScreen extends ConsumerWidget {
         ),
       ],
     ).animate().fadeIn(delay: 400.ms);
+  }
+
+  Widget _buildAvailableRidesCard(BuildContext context, bool isNight) {
+    return InkWell(
+          onTap: () => context.goNamed('availableRides'),
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: isNight
+                    ? [
+                        AppColors.nightAccent.withValues(alpha: 0.2),
+                        AppColors.nightAccent.withValues(alpha: 0.1),
+                      ]
+                    : [
+                        AppColors.success.withValues(alpha: 0.1),
+                        AppColors.success.withValues(alpha: 0.05),
+                      ],
+              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: (isNight ? AppColors.nightAccent : AppColors.success)
+                    .withValues(alpha: 0.3),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: (isNight ? AppColors.nightAccent : AppColors.success)
+                        .withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.people_alt_rounded,
+                    color: isNight ? AppColors.nightAccent : AppColors.success,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Browse Available Rides',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Join rides posted by other riders near you',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: AppColors.textSecondary,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.arrow_forward_rounded,
+                  color: isNight ? AppColors.nightAccent : AppColors.success,
+                  size: 22,
+                ),
+              ],
+            ),
+          ),
+        )
+        .animate()
+        .fadeIn(delay: 300.ms, duration: 500.ms)
+        .slideY(begin: 0.15, end: 0, delay: 300.ms);
   }
 
   Widget _buildQuickActions(BuildContext context, bool isNight) {

@@ -3,9 +3,10 @@
 
 import 'package:go_router/go_router.dart';
 import 'package:shared_cab/features/auth/login_screen.dart';
-import 'package:shared_cab/features/auth/otp_screen.dart';
+import 'package:shared_cab/features/auth/signup_screen.dart';
 import 'package:shared_cab/features/home/home_screen.dart';
 import 'package:shared_cab/features/ride/create_ride_screen.dart';
+import 'package:shared_cab/features/ride/available_rides_screen.dart';
 import 'package:shared_cab/features/matching/match_list_screen.dart';
 import 'package:shared_cab/features/trip/trip_status_screen.dart';
 import 'package:shared_cab/features/trip/live_tracking_screen.dart';
@@ -34,12 +35,9 @@ class AppRouter {
         builder: (context, state) => const LoginScreen(),
       ),
       GoRoute(
-        path: '/otp',
-        name: 'otp',
-        builder: (context, state) {
-          final phone = state.extra as String? ?? '';
-          return OtpScreen(phoneNumber: phone);
-        },
+        path: '/signup',
+        name: 'signup',
+        builder: (context, state) => const SignupScreen(),
       ),
 
       // Main shell with bottom nav
@@ -64,6 +62,11 @@ class AppRouter {
         path: '/create-ride',
         name: 'createRide',
         builder: (context, state) => const CreateRideScreen(),
+      ),
+      GoRoute(
+        path: '/available-rides',
+        name: 'availableRides',
+        builder: (context, state) => const AvailableRidesScreen(),
       ),
       GoRoute(
         path: '/matches/:rideId',
@@ -134,3 +137,4 @@ class AppRouter {
     ],
   );
 }
+

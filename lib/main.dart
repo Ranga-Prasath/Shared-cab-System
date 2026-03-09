@@ -3,12 +3,17 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:shared_cab/firebase_options.dart';
 import 'package:shared_cab/core/router/app_router.dart';
 import 'package:shared_cab/core/theme/app_theme.dart';
 import 'package:shared_cab/providers/app_providers.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const ProviderScope(child: SharedCabApp()));
 }
 
@@ -29,3 +34,4 @@ class SharedCabApp extends ConsumerWidget {
     );
   }
 }
+

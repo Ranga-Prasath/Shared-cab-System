@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:shared_cab/core/services/geocoding_service.dart';
+import 'package:shared_cab/core/services/ride_service.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
 import 'package:shared_cab/core/utils/night_mode_utils.dart';
 import 'package:shared_cab/models/location_model.dart';
@@ -162,9 +163,13 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
 
     await Future.delayed(const Duration(milliseconds: 600));
 
+    final currentUser = ref.read(effectiveCurrentUserProvider);
+
     final ride = RideRequest(
       id: const Uuid().v4(),
-      userId: ref.read(effectiveCurrentUserProvider).id,
+      userId: currentUser.id,
+      userName: currentUser.name,
+      userGender: currentUser.gender,
       pickup: _pickup!,
       dropoff: _dropoff!,
       departureTime: departureTime,
@@ -172,6 +177,13 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
     );
 
     ref.read(currentRideRequestProvider.notifier).state = ride;
+
+    // Publish to Firestore so other users can see this ride
+    try {
+      await RideService.publishRide(ride);
+    } catch (_) {
+      // Silently fail if Firestore write fails; local flow still works
+    }
 
     if (startNow) {
       final distanceKm = ride.pickup.distanceTo(ride.dropoff);

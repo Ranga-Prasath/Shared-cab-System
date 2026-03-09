@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_cab/core/services/auth_service.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
 import 'package:shared_cab/providers/app_providers.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -55,7 +56,7 @@ class ProfileScreen extends ConsumerWidget {
                     ),
                   const SizedBox(width: 4),
                   Text(
-                    user.phone,
+                    user.email ?? user.phone,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: AppColors.textSecondary,
                     ),
@@ -134,7 +135,8 @@ class ProfileScreen extends ConsumerWidget {
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: () {
+                  onPressed: () async {
+                    await AuthService.signOut();
                     ref.read(isLoggedInProvider.notifier).state = false;
                     ref.read(currentUserProvider.notifier).state = null;
                     ref.read(activeTripProvider.notifier).state = null;
@@ -142,7 +144,7 @@ class ProfileScreen extends ConsumerWidget {
                     ref.read(currentRideRequestProvider.notifier).state = null;
                     ref.read(panicModeProvider.notifier).state = false;
                     ref.read(bottomNavIndexProvider.notifier).state = 0;
-                    context.goNamed('login');
+                    if (context.mounted) context.goNamed('login');
                   },
                   icon: const Icon(
                     Icons.logout_rounded,

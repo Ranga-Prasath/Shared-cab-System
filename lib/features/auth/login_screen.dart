@@ -1,11 +1,13 @@
 // -- Shared Cab System --
-// Login Screen
+// Login Screen — Firebase email/password authentication
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_cab/core/services/auth_service.dart';
 import 'package:shared_cab/core/utils/night_mode_utils.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
+import 'package:shared_cab/providers/app_providers.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -16,13 +18,54 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
-  final _phoneController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  bool _isLoading = false;
+  bool _obscurePassword = true;
+  String? _errorMessage;
 
   @override
   void dispose() {
-    _phoneController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
     super.dispose();
+  }
+
+  Future<void> _signIn() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final user = await AuthService.signIn(
+        email: _emailController.text,
+        password: _passwordController.text,
+      );
+      if (!mounted) return;
+
+      ref.read(isLoggedInProvider.notifier).state = true;
+      ref.read(currentUserProvider.notifier).state = user;
+      context.goNamed('home');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = _friendlyError(e.toString());
+        _isLoading = false;
+      });
+    }
+  }
+
+  String _friendlyError(String error) {
+    if (error.contains('user-not-found')) return 'No account found with this email.';
+    if (error.contains('wrong-password') || error.contains('invalid-credential')) {
+      return 'Incorrect password. Please try again.';
+    }
+    if (error.contains('invalid-email')) return 'Please enter a valid email address.';
+    if (error.contains('too-many-requests')) return 'Too many attempts. Try again later.';
+    return 'Login failed. Please try again.';
   }
 
   @override
@@ -82,12 +125,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     )
                     .animate()
                     .fadeIn(delay: 200.ms, duration: 500.ms)
-                    .slideY(
-                      begin: 0.3,
-                      end: 0,
-                      duration: 500.ms,
-                      delay: 200.ms,
-                    ),
+                    .slideY(begin: 0.3, end: 0, duration: 500.ms, delay: 200.ms),
 
                 const SizedBox(height: 8),
 
@@ -99,14 +137,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   textAlign: TextAlign.center,
                 ).animate().fadeIn(delay: 400.ms, duration: 500.ms),
 
-                const SizedBox(height: 60),
+                const SizedBox(height: 48),
 
                 // Savings badge
                 Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
                           colors: [
@@ -120,19 +155,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         mainAxisSize: MainAxisSize.min,
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(
-                            Icons.savings_outlined,
-                            color: Colors.white,
-                            size: 20,
-                          ),
+                          const Icon(Icons.savings_outlined, color: Colors.white, size: 20),
                           const SizedBox(width: 8),
                           Text(
                             'Save up to 60-70% on every ride',
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ],
                       ),
@@ -141,52 +171,143 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     .fadeIn(delay: 600.ms)
                     .slideY(begin: 0.5, end: 0, delay: 600.ms),
 
-                const SizedBox(height: 40),
+                const SizedBox(height: 32),
 
-                // Phone input
+                // Email input
                 Text(
-                  'Enter your phone number',
+                  'Sign in to your account',
                   style: Theme.of(context).textTheme.titleMedium,
                 ).animate().fadeIn(delay: 700.ms),
 
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
 
                 TextFormField(
-                  controller: _phoneController,
-                  keyboardType: TextInputType.phone,
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.next,
                   decoration: const InputDecoration(
-                    hintText: '+91 98765 43210',
-                    prefixIcon: Icon(Icons.phone_outlined),
+                    hintText: 'Email address',
+                    prefixIcon: Icon(Icons.email_outlined),
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Please enter your email';
+                    }
+                    if (!value.contains('@')) {
+                      return 'Please enter a valid email';
+                    }
+                    return null;
+                  },
+                ).animate().fadeIn(delay: 750.ms),
+
+                const SizedBox(height: 12),
+
+                // Password input
+                TextFormField(
+                  controller: _passwordController,
+                  obscureText: _obscurePassword,
+                  textInputAction: TextInputAction.done,
+                  onFieldSubmitted: (_) => _signIn(),
+                  decoration: InputDecoration(
+                    hintText: 'Password',
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePassword
+                            ? Icons.visibility_off_outlined
+                            : Icons.visibility_outlined,
+                      ),
+                      onPressed: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
+                    ),
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
-                      return 'Please enter your phone number';
+                      return 'Please enter your password';
+                    }
+                    if (value.length < 6) {
+                      return 'Password must be at least 6 characters';
                     }
                     return null;
                   },
                 ).animate().fadeIn(delay: 800.ms),
 
+                if (_errorMessage != null) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.danger.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.error_outline, color: AppColors.danger, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _errorMessage!,
+                            style: const TextStyle(
+                              color: AppColors.danger,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
                 const SizedBox(height: 24),
 
                 // Login button
                 ElevatedButton(
-                      onPressed: () {
-                        if (_formKey.currentState!.validate()) {
-                          context.goNamed('otp', extra: _phoneController.text);
-                        }
-                      },
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text('Get OTP'),
-                          SizedBox(width: 8),
-                          Icon(Icons.arrow_forward_rounded, size: 20),
-                        ],
-                      ),
+                      onPressed: _isLoading ? null : _signIn,
+                      child: _isLoading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text('Sign In'),
+                                SizedBox(width: 8),
+                                Icon(Icons.arrow_forward_rounded, size: 20),
+                              ],
+                            ),
                     )
                     .animate()
                     .fadeIn(delay: 900.ms)
                     .slideY(begin: 0.3, end: 0, delay: 900.ms),
+
+                const SizedBox(height: 16),
+
+                // Sign up link
+                TextButton(
+                  onPressed: () => context.goNamed('signup'),
+                  child: RichText(
+                    textAlign: TextAlign.center,
+                    text: TextSpan(
+                      style: Theme.of(context).textTheme.bodyMedium,
+                      children: const [
+                        TextSpan(text: "Don't have an account? "),
+                        TextSpan(
+                          text: 'Sign Up',
+                          style: TextStyle(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ).animate().fadeIn(delay: 1000.ms),
 
                 const SizedBox(height: 20),
 
@@ -220,9 +341,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               Expanded(
                 child: Text(
                   'Night Mode Active - Extra safety features enabled',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(color: AppColors.nightMoon),
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: AppColors.nightMoon),
                 ),
               ),
             ],
