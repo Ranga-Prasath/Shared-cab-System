@@ -82,27 +82,53 @@ class RideService {
   }
 
   /// User 1 ACCEPTS the request.
-  /// Adds the requester to coRiderIds, sets status to 'matched'.
-  static Future<void> acceptRequest(String rideId) async {
+  /// If waitForMore is true, sets status to 'acceptedWaiting' (waiting for more riders).
+  /// If false, sets status to 'matched' (proceed immediately).
+  static Future<void> acceptRequest(String rideId, {bool waitForMore = false}) async {
     final doc = await _rides.doc(rideId).get();
     if (!doc.exists) return;
     final data = doc.data()!;
     final requesterId = data['requesterId'];
 
     await _rides.doc(rideId).update({
-      'status': 'matched',
+      'status': waitForMore ? 'acceptedWaiting' : 'matched',
       'coRiderIds': FieldValue.arrayUnion([requesterId]),
+      // Clear requester fields so new requests can come in
+      'requesterId': null,
+      'requesterName': null,
+      'requesterGender': null,
+      'requesterPickup': null,
+      'requesterDropoff': null,
+    });
+  }
+
+  /// User 1 decides to PROCEED the ride (stop waiting for more riders).
+  /// Changes status from 'acceptedWaiting' to 'matched'.
+  static Future<void> proceedRide(String rideId) async {
+    await _rides.doc(rideId).update({
+      'status': 'matched',
+    });
+  }
+
+  /// A co-rider leaves the ride while in acceptedWaiting state.
+  static Future<void> leaveRide(String rideId) async {
+    final currentUid = fb.FirebaseAuth.instance.currentUser?.uid;
+    if (currentUid == null) return;
+
+    await _rides.doc(rideId).update({
+      'coRiderIds': FieldValue.arrayRemove([currentUid]),
     });
   }
 
   /// User 1 DECLINES the request.
-  /// Clears the requester info, sets status back to 'declined' briefly,
-  /// then back to 'pending' so the ride can receive new requests.
   static Future<void> declineRequest(String rideId) async {
     await _rides.doc(rideId).update({
       'status': 'declined',
       'requesterId': null,
       'requesterName': null,
+      'requesterGender': null,
+      'requesterPickup': null,
+      'requesterDropoff': null,
     });
     // After a brief moment, set back to pending so ride is available again
     await Future.delayed(const Duration(seconds: 3));

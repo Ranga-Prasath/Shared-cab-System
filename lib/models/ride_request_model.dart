@@ -4,7 +4,7 @@
 import 'package:shared_cab/models/location_model.dart';
 import 'package:shared_cab/core/utils/night_mode_utils.dart';
 
-enum RideStatus { pending, requested, matched, declined, active, completed, cancelled }
+enum RideStatus { pending, requested, acceptedWaiting, matched, declined, active, completed, cancelled }
 
 class RideRequest {
   final String id;

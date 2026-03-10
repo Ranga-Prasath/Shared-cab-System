@@ -10,6 +10,7 @@ import 'package:shared_cab/models/ride_request_model.dart';
 import 'package:shared_cab/models/route_deviation_model.dart';
 import 'package:shared_cab/models/trip_model.dart';
 import 'package:shared_cab/models/user_model.dart';
+import 'package:shared_cab/models/location_model.dart';
 
 // Auth State
 final isLoggedInProvider = StateProvider<bool>((ref) => false);
@@ -69,3 +70,8 @@ final recurringRidesProvider = StateProvider<List<RecurringRide>>((ref) => []);
 final ridePreferencesProvider = StateProvider<RidePreferences>(
   (ref) => const RidePreferences(),
 );
+
+/// Stores pickup locations for each rider in a shared trip, keyed by rider name.
+/// Each entry: { 'name': String, 'pickup': LocationPoint }
+final coRiderPickupLocationsProvider =
+    StateProvider<List<Map<String, dynamic>>>((ref) => []);

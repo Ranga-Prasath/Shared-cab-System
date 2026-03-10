@@ -29,13 +29,17 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
   StreamSubscription? _myRideSub;
   bool _alreadyNavigated = false;
 
-  // Incoming request state (when someone asks to join MY ride)
+  // Incoming request state
   bool _hasIncomingRequest = false;
   String _requesterName = '';
   String _requesterId = '';
   String _requesterGender = '';
   String _requesterPickup = '';
   String _requesterDropoff = '';
+
+  // Waiting for more riders state
+  bool _isWaitingForMoreRiders = false;
+  int _acceptedRiderCount = 0;
 
   // Store the stream so it's only created ONCE
   late final Stream<List<RideRequest>> _ridesStream;
@@ -82,11 +86,24 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
           _requesterGender = '';
           _requesterPickup = '';
           _requesterDropoff = '';
+          // Keep waiting state if already in it
         });
         return;
       }
 
-      // Ride was ACCEPTED / matched — navigate to trip
+      // Accepted and WAITING for more riders
+      if (updatedRide.status == RideStatus.acceptedWaiting) {
+        setState(() {
+          _isWaitingForMoreRiders = true;
+          _acceptedRiderCount = updatedRide.coRiderIds.length;
+          _hasIncomingRequest = false;
+          _requesterName = '';
+          _requesterId = '';
+        });
+        return;
+      }
+
+      // Ride was matched — navigate to trip
       if (updatedRide.status == RideStatus.matched &&
           updatedRide.coRiderIds.isNotEmpty) {
         _alreadyNavigated = true;
@@ -100,8 +117,46 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
     if (myRide == null) return;
 
     setState(() => _hasIncomingRequest = false);
-    await RideService.acceptRequest(myRide.id);
-    // The stream listener will detect 'matched' status and navigate
+
+    // Show choice: Wait for more riders or Proceed now
+    final choice = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rider accepted! 🎉'),
+        content: const Text(
+          'Do you want to wait for more riders to join '
+          'or start the ride now?',
+        ),
+        actions: [
+          OutlinedButton.icon(
+            onPressed: () => Navigator.pop(ctx, 'wait'),
+            icon: const Icon(Icons.hourglass_top_rounded, size: 18),
+            label: const Text('Wait for more'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(ctx, 'proceed'),
+            icon: const Icon(Icons.directions_car_rounded, size: 18),
+            label: const Text('Proceed now'),
+          ),
+        ],
+      ),
+    );
+
+    if (choice == 'wait') {
+      await RideService.acceptRequest(myRide.id, waitForMore: true);
+      // Stream listener will detect 'acceptedWaiting' and update UI
+    } else {
+      await RideService.acceptRequest(myRide.id, waitForMore: false);
+      // Stream listener will detect 'matched' and navigate
+    }
+  }
+
+  void _proceedNow() async {
+    final myRide = ref.read(currentRideRequestProvider);
+    if (myRide == null) return;
+    await RideService.proceedRide(myRide.id);
+    // Stream listener will detect 'matched' and navigate
   }
 
   void _declineRequest() async {
@@ -203,6 +258,9 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
 
     if (!mounted) return;
 
+    // Create a notifier for the dynamic status of the dialog
+    final rideStatusNotifier = ValueNotifier<RideStatus>(RideStatus.requested);
+    
     // Track whether dialog is still open
     bool dialogOpen = false;
 
@@ -210,6 +268,8 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
     late final StreamSubscription sub;
     sub = RideService.rideStream(otherRide.id).listen((updatedRide) {
       if (updatedRide == null || !mounted) return;
+      
+      rideStatusNotifier.value = updatedRide.status;
 
       if (updatedRide.status == RideStatus.matched) {
         sub.cancel();
@@ -264,36 +324,46 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
       barrierDismissible: false,
       builder: (ctx) => PopScope(
         canPop: false,
-        child: AlertDialog(
-          title: const Row(
-            children: [
-              SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: AppColors.primary,
-                ),
+        child: ValueListenableBuilder<RideStatus>(
+          valueListenable: rideStatusNotifier,
+          builder: (context, status, child) {
+            final isWaiting = status == RideStatus.acceptedWaiting;
+            return AlertDialog(
+              title: Row(
+                children: [
+                  const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(isWaiting ? 'Waiting for another rider' : 'Waiting for approval'),
+                ],
               ),
-              SizedBox(width: 12),
-              Text('Waiting for approval'),
-            ],
-          ),
-          content: Text(
-            '${otherRide.userName.isNotEmpty ? otherRide.userName : "The rider"} '
-            'is reviewing your request...\n\n'
-            'You will be notified when they accept or decline.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                sub.cancel();
-                dialogOpen = false;
-                Navigator.of(ctx).pop();
-              },
-              child: const Text('Cancel Request'),
-            ),
-          ],
+              content: Text(
+                isWaiting 
+                    ? 'Your request was accepted! ${otherRide.userName.isNotEmpty ? otherRide.userName : "The rider"} is waiting for another rider to join the trip...'
+                    : '${otherRide.userName.isNotEmpty ? otherRide.userName : "The rider"} is reviewing your request...\n\nYou will be notified when they accept or decline.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    // If we cancel while acceptedWaiting, we need to leave the ride instead of just closing dialog
+                    if (isWaiting) {
+                      RideService.leaveRide(otherRide.id);
+                    }
+                    sub.cancel();
+                    dialogOpen = false;
+                    Navigator.of(ctx).pop();
+                  },
+                  child: Text(isWaiting ? 'Cancel Ride' : 'Cancel Request'),
+                ),
+              ],
+            );
+          },
         ),
       ),
     ).then((_) {
@@ -353,6 +423,13 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
               requesterDropoff: _requesterDropoff,
               onAccept: _acceptRequest,
               onDecline: _declineRequest,
+            ).animate().fadeIn().slideY(begin: -0.3, end: 0),
+
+          // ── Waiting for more riders banner ──
+          if (_isWaitingForMoreRiders && !_hasIncomingRequest)
+            _WaitingForMoreBanner(
+              acceptedCount: _acceptedRiderCount,
+              onProceed: _proceedNow,
             ).animate().fadeIn().slideY(begin: -0.3, end: 0),
 
           // ── Main content ──
@@ -744,6 +821,107 @@ class _IncomingRequestBanner extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Waiting for More Riders Banner ──
+
+class _WaitingForMoreBanner extends StatelessWidget {
+  final int acceptedCount;
+  final VoidCallback onProceed;
+
+  const _WaitingForMoreBanner({
+    required this.acceptedCount,
+    required this.onProceed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AppColors.success.withValues(alpha: 0.12),
+            AppColors.primary.withValues(alpha: 0.08),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AppColors.success.withValues(alpha: 0.3),
+          width: 2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.success.withValues(alpha: 0.1),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.success.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.groups_rounded,
+                  color: AppColors.success,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '⏳ Waiting for more riders...',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$acceptedCount rider${acceptedCount > 1 ? 's' : ''} accepted so far',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: onProceed,
+              icon: const Icon(Icons.directions_car_rounded, size: 18),
+              label: const Text('Proceed Now — Start Ride'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.success,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
           ),
         ],
       ),

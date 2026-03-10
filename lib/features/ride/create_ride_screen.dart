@@ -30,6 +30,8 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
   final MapController _mapController = MapController();
   final TextEditingController _dropoffSearchController =
       TextEditingController();
+  final TextEditingController _pickupSearchController =
+      TextEditingController();
 
   LocationPoint? _pickup;
   LocationPoint? _dropoff;
@@ -40,10 +42,15 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
   bool _locationUnavailable = false;
   String? _pendingAction;
 
-  // Search state
+  // Drop-off search state
   List<LocationPoint> _searchResults = [];
   bool _isSearching = false;
   Timer? _searchDebounce;
+
+  // Pickup search state
+  List<LocationPoint> _pickupSearchResults = [];
+  bool _isPickupSearching = false;
+  Timer? _pickupSearchDebounce;
 
   @override
   void initState() {
@@ -54,7 +61,9 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
   @override
   void dispose() {
     _dropoffSearchController.dispose();
+    _pickupSearchController.dispose();
     _searchDebounce?.cancel();
+    _pickupSearchDebounce?.cancel();
     super.dispose();
   }
 
@@ -88,6 +97,8 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
         longitude: position.longitude,
         address: address,
       );
+      _pickupSearchController.text = address;
+      _pickupSearchResults = [];
       _isLocatingPickup = false;
       _locationUnavailable = false;
     });
@@ -116,6 +127,35 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
         _isSearching = false;
       });
     });
+  }
+
+  void _onPickupSearchChanged(String query) {
+    _pickupSearchDebounce?.cancel();
+    if (query.trim().length < 3) {
+      setState(() {
+        _pickupSearchResults = [];
+        _isPickupSearching = false;
+      });
+      return;
+    }
+    setState(() => _isPickupSearching = true);
+    _pickupSearchDebounce = Timer(const Duration(milliseconds: 600), () async {
+      final results = await GeocodingService.searchPlaces(query);
+      if (!mounted) return;
+      setState(() {
+        _pickupSearchResults = results;
+        _isPickupSearching = false;
+      });
+    });
+  }
+
+  void _selectPickup(LocationPoint location) {
+    setState(() {
+      _pickup = location;
+      _pickupSearchController.text = location.address;
+      _pickupSearchResults = [];
+    });
+    _focusRouteOrPickup();
   }
 
   void _selectDropoff(LocationPoint location) {
@@ -431,70 +471,13 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
 
             const SizedBox(height: 20),
 
-            // ── Pickup (GPS + real address) ──
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: AppColors.info.withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: AppColors.info.withValues(alpha: 0.2),
-                ),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.my_location_rounded,
-                    color: AppColors.info,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      _pickup?.address ??
-                          (_isLocatingPickup
-                              ? 'Fetching current location...'
-                              : 'Current location unavailable'),
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: _isLocatingPickup
-                        ? null
-                        : _setPickupFromCurrentLocation,
-                    icon: _isLocatingPickup
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.gps_fixed_rounded, size: 16),
-                    label: const Text('Use Current'),
-                  ),
-                ],
-              ),
+            // ── Pickup (search + current location) ──
+            Text(
+              'Pickup Location',
+              style: Theme.of(context).textTheme.titleMedium,
             ).animate().fadeIn(delay: 150.ms),
-
-            if (_locationUnavailable) ...[
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: AppColors.warning.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Text(
-                  'Location permission is off. Enable GPS to auto-set pickup.',
-                  style: TextStyle(
-                    color: AppColors.warning,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-            ],
+            const SizedBox(height: 8),
+            _buildPickupSearchField().animate().fadeIn(delay: 200.ms),
 
             const SizedBox(height: 16),
 
@@ -663,6 +646,133 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  /// Search-based pickup field with autocomplete + "Use Current Location" button.
+  Widget _buildPickupSearchField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: _pickupSearchController,
+          onChanged: _onPickupSearchChanged,
+          decoration: InputDecoration(
+            hintText: 'Search pickup location...',
+            prefixIcon:
+                const Icon(Icons.my_location_rounded, color: AppColors.info),
+            suffixIcon: _isPickupSearching
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                : _pickupSearchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          _pickupSearchController.clear();
+                          setState(() {
+                            _pickup = null;
+                            _pickupSearchResults = [];
+                          });
+                        },
+                      )
+                    : null,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        ),
+        if (_pickupSearchResults.isNotEmpty)
+          Container(
+            margin: const EdgeInsets.only(top: 4),
+            constraints: const BoxConstraints(maxHeight: 220),
+            decoration: BoxDecoration(
+              color: Theme.of(context).cardColor,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.divider),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.08),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: ListView.separated(
+              shrinkWrap: true,
+              padding: EdgeInsets.zero,
+              itemCount: _pickupSearchResults.length,
+              separatorBuilder: (_, __) =>
+                  const Divider(height: 1, indent: 48),
+              itemBuilder: (context, index) {
+                final loc = _pickupSearchResults[index];
+                return ListTile(
+                  leading: const Icon(
+                    Icons.place_rounded,
+                    color: AppColors.info,
+                    size: 22,
+                  ),
+                  title: Text(
+                    loc.address,
+                    style: const TextStyle(fontSize: 13),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  dense: true,
+                  visualDensity: VisualDensity.compact,
+                  onTap: () => _selectPickup(loc),
+                );
+              },
+            ),
+          ),
+        const SizedBox(height: 8),
+        // "Use Current Location" shortcut button
+        OutlinedButton.icon(
+          onPressed: _isLocatingPickup ? null : _setPickupFromCurrentLocation,
+          icon: _isLocatingPickup
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.gps_fixed_rounded, size: 18),
+          label: Text(
+            _isLocatingPickup ? 'Fetching location...' : '📍 Use Current Location',
+          ),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppColors.info,
+            side: BorderSide(color: AppColors.info.withValues(alpha: 0.4)),
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        ),
+        if (_locationUnavailable)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.warning.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Text(
+                'Location permission is off. Enable GPS to auto-set pickup.',
+                style: TextStyle(
+                  color: AppColors.warning,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
