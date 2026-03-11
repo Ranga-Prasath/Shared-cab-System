@@ -137,8 +137,7 @@ class ProfileScreen extends ConsumerWidget {
                 child: OutlinedButton.icon(
                   onPressed: () async {
                     await AuthService.signOut();
-                    ref.read(isLoggedInProvider.notifier).state = false;
-                    ref.read(currentUserProvider.notifier).state = null;
+                    ref.read(currentUserOverrideProvider.notifier).state = null;
                     ref.read(activeTripProvider.notifier).state = null;
                     ref.read(rideHistoryProvider.notifier).state = [];
                     ref.read(currentRideRequestProvider.notifier).state = null;

@@ -2,6 +2,7 @@
 // Safe Arrival PIN Screen
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
@@ -19,6 +20,7 @@ class SafeArrivalScreen extends ConsumerStatefulWidget {
 }
 
 class _SafeArrivalScreenState extends ConsumerState<SafeArrivalScreen> {
+  static const _demoSafeArrivalPin = '4829';
   final _pinController = TextEditingController();
   String? _error;
   bool _verified = false;
@@ -33,7 +35,7 @@ class _SafeArrivalScreenState extends ConsumerState<SafeArrivalScreen> {
     final trip = ref.read(activeTripProvider);
     if (trip == null) return;
 
-    if (_pinController.text == trip.safeArrivalPin) {
+    if (_pinController.text == _demoSafeArrivalPin) {
       setState(() {
         _verified = true;
         _error = null;
@@ -61,8 +63,6 @@ class _SafeArrivalScreenState extends ConsumerState<SafeArrivalScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final trip = ref.watch(activeTripProvider);
-
     return Scaffold(
       backgroundColor: AppColors.nightPrimary,
       appBar: AppBar(
@@ -104,26 +104,6 @@ class _SafeArrivalScreenState extends ConsumerState<SafeArrivalScreen> {
                 style: const TextStyle(color: Colors.white60, fontSize: 14),
                 textAlign: TextAlign.center,
               ).animate().fadeIn(delay: 300.ms),
-              const SizedBox(height: 8),
-              if (trip?.safeArrivalPin != null && !_verified)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.info.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    'Demo PIN: ${trip!.safeArrivalPin}',
-                    style: const TextStyle(
-                      color: AppColors.info,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ).animate().fadeIn(delay: 400.ms),
               const SizedBox(height: 32),
               if (!_verified) ...[
                 SizedBox(
@@ -131,6 +111,7 @@ class _SafeArrivalScreenState extends ConsumerState<SafeArrivalScreen> {
                   child: TextField(
                     controller: _pinController,
                     keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     textAlign: TextAlign.center,
                     maxLength: 4,
                     style: const TextStyle(

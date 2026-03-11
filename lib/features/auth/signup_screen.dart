@@ -50,8 +50,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
       );
       if (!mounted) return;
 
-      ref.read(isLoggedInProvider.notifier).state = true;
-      ref.read(currentUserProvider.notifier).state = user;
+      ref.read(currentUserOverrideProvider.notifier).state = user;
       context.goNamed('home');
     } catch (e) {
       if (!mounted) return;
@@ -69,7 +68,9 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     if (error.contains('weak-password')) {
       return 'Password is too weak. Use at least 6 characters.';
     }
-    if (error.contains('invalid-email')) return 'Please enter a valid email address.';
+    if (error.contains('invalid-email')) {
+      return 'Please enter a valid email address.';
+    }
     return 'Sign up failed. Please try again.';
   }
 
@@ -97,10 +98,10 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                   size: 48,
                   color: AppColors.primary,
                 ).animate().fadeIn().scale(
-                      begin: const Offset(0.5, 0.5),
-                      end: const Offset(1, 1),
-                      curve: Curves.elasticOut,
-                    ),
+                  begin: const Offset(0.5, 0.5),
+                  end: const Offset(1, 1),
+                  curve: Curves.elasticOut,
+                ),
 
                 const SizedBox(height: 24),
 
@@ -114,10 +115,9 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
 
                 Text(
                   'Join Shared Cab and start saving on rides',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodyLarge
-                      ?.copyWith(color: AppColors.textSecondary),
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
                   textAlign: TextAlign.center,
                 ).animate().fadeIn(delay: 300.ms),
 
@@ -236,8 +236,11 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.error_outline,
-                            color: AppColors.danger, size: 18),
+                        const Icon(
+                          Icons.error_outline,
+                          color: AppColors.danger,
+                          size: 18,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -258,29 +261,28 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
 
                 // Sign Up button
                 ElevatedButton(
-                  onPressed: _isLoading ? null : _signUp,
-                  child: _isLoading
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text('Create Account'),
-                            SizedBox(width: 8),
-                            Icon(Icons.check_circle_outline, size: 20),
-                          ],
-                        ),
-                ).animate().fadeIn(delay: 700.ms).slideY(
-                      begin: 0.3,
-                      end: 0,
-                      delay: 700.ms,
-                    ),
+                      onPressed: _isLoading ? null : _signUp,
+                      child: _isLoading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text('Create Account'),
+                                SizedBox(width: 8),
+                                Icon(Icons.check_circle_outline, size: 20),
+                              ],
+                            ),
+                    )
+                    .animate()
+                    .fadeIn(delay: 700.ms)
+                    .slideY(begin: 0.3, end: 0, delay: 700.ms),
 
                 const SizedBox(height: 16),
 

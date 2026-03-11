@@ -41,6 +41,77 @@ class TripMapMath {
     return distance;
   }
 
+  static double distanceKmBetween(LatLng a, LatLng b) {
+    return _haversineKm(a, b);
+  }
+
+  static double routeScalarFromProgress({
+    required double overallProgress,
+    required int pointCount,
+  }) {
+    if (pointCount < 2) return 0;
+    final maxScalar = (pointCount - 1).toDouble();
+    return (overallProgress.clamp(0.0, 1.0) * maxScalar)
+        .clamp(0.0, maxScalar)
+        .toDouble();
+  }
+
+  static double routeScalarFromSegment({
+    required int segmentIndex,
+    required double segmentProgress,
+    required int pointCount,
+  }) {
+    if (pointCount < 2) return 0;
+    final safeSegmentIndex = segmentIndex.clamp(0, pointCount - 2);
+    final safeSegmentProgress = segmentProgress.clamp(0.0, 1.0);
+    return (safeSegmentIndex + safeSegmentProgress)
+        .clamp(0.0, (pointCount - 1).toDouble())
+        .toDouble();
+  }
+
+  static TripRouteFrame routeFrameFromScalar({
+    required double routeScalar,
+    required int pointCount,
+  }) {
+    if (pointCount < 2) {
+      return const TripRouteFrame(
+        segmentIndex: 0,
+        segmentProgress: 0,
+        overallProgress: 0,
+      );
+    }
+
+    final maxScalar = (pointCount - 1).toDouble();
+    final safeScalar = routeScalar.clamp(0.0, maxScalar).toDouble();
+    final segmentIndex = safeScalar >= maxScalar
+        ? pointCount - 2
+        : safeScalar.floor();
+    final segmentProgress = safeScalar >= maxScalar
+        ? 1.0
+        : (safeScalar - segmentIndex).clamp(0.0, 1.0).toDouble();
+
+    return TripRouteFrame(
+      segmentIndex: segmentIndex,
+      segmentProgress: segmentProgress,
+      overallProgress: (safeScalar / maxScalar).clamp(0.0, 1.0).toDouble(),
+    );
+  }
+
+  static Duration recommendedRemoteSyncDuration({
+    int? previousUpdateAtMs,
+    int? currentUpdateAtMs,
+    Duration fallback = const Duration(milliseconds: 1450),
+  }) {
+    if (previousUpdateAtMs == null || currentUpdateAtMs == null) {
+      return fallback;
+    }
+
+    final diffMs = currentUpdateAtMs - previousUpdateAtMs;
+    if (diffMs <= 0) return fallback;
+    final clampedMs = diffMs.clamp(400, 1600);
+    return Duration(milliseconds: clampedMs);
+  }
+
   static double _haversineKm(LatLng a, LatLng b) {
     const earthRadiusKm = 6371.0;
     final dLat = _toRadians(b.latitude - a.latitude);
@@ -59,4 +130,16 @@ class TripMapMath {
 
   static double _toRadians(double degrees) => degrees * (math.pi / 180);
   static double _toDegrees(double radians) => radians * (180 / math.pi);
+}
+
+class TripRouteFrame {
+  final int segmentIndex;
+  final double segmentProgress;
+  final double overallProgress;
+
+  const TripRouteFrame({
+    required this.segmentIndex,
+    required this.segmentProgress,
+    required this.overallProgress,
+  });
 }

@@ -51,12 +51,38 @@ class User {
       rating: (map['rating'] ?? 5.0).toDouble(),
       totalTrips: map['totalTrips'] ?? 0,
       profileImageUrl: map['profileImageUrl'],
-      emergencyContacts: (map['emergencyContacts'] as List<dynamic>?)
-              ?.map((c) =>
-                  EmergencyContact.fromMap(c as Map<String, dynamic>))
+      emergencyContacts:
+          (map['emergencyContacts'] as List<dynamic>?)
+              ?.map((c) => EmergencyContact.fromMap(c as Map<String, dynamic>))
               .toList() ??
           const [],
       isVerified: map['isVerified'] ?? false,
+    );
+  }
+
+  User copyWith({
+    String? id,
+    String? name,
+    String? phone,
+    String? email,
+    String? gender,
+    double? rating,
+    int? totalTrips,
+    String? profileImageUrl,
+    List<EmergencyContact>? emergencyContacts,
+    bool? isVerified,
+  }) {
+    return User(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      phone: phone ?? this.phone,
+      email: email ?? this.email,
+      gender: gender ?? this.gender,
+      rating: rating ?? this.rating,
+      totalTrips: totalTrips ?? this.totalTrips,
+      profileImageUrl: profileImageUrl ?? this.profileImageUrl,
+      emergencyContacts: emergencyContacts ?? this.emergencyContacts,
+      isVerified: isVerified ?? this.isVerified,
     );
   }
 }
@@ -92,4 +118,3 @@ class EmergencyContact {
     );
   }
 }
-

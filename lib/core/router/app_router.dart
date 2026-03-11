@@ -9,6 +9,7 @@ import 'package:shared_cab/features/ride/create_ride_screen.dart';
 import 'package:shared_cab/features/ride/available_rides_screen.dart';
 import 'package:shared_cab/features/matching/match_list_screen.dart';
 import 'package:shared_cab/features/trip/trip_status_screen.dart';
+import 'package:shared_cab/features/trip/trip_debug_screen.dart';
 import 'package:shared_cab/features/trip/live_tracking_screen.dart';
 import 'package:shared_cab/features/trip/trip_complete_screen.dart';
 import 'package:shared_cab/features/safety/panic_screen.dart';
@@ -26,7 +27,7 @@ class AppRouter {
   AppRouter._();
 
   static final router = GoRouter(
-    initialLocation: '/login',
+    initialLocation: _resolveInitialLocation(),
     routes: [
       // Auth
       GoRoute(
@@ -79,6 +80,15 @@ class AppRouter {
         name: 'tripStatus',
         builder: (context, state) =>
             TripStatusScreen(tripId: state.pathParameters['tripId']!),
+      ),
+      GoRoute(
+        path: '/qa/trip',
+        name: 'tripDebug',
+        builder: (context, state) {
+          final riders =
+              int.tryParse(state.uri.queryParameters['riders'] ?? '3') ?? 3;
+          return TripDebugScreen(riders: riders);
+        },
       ),
       GoRoute(
         path: '/trip-complete/:tripId',
@@ -136,5 +146,13 @@ class AppRouter {
       ),
     ],
   );
-}
 
+  static String _resolveInitialLocation() {
+    final qaTrip = Uri.base.queryParameters['qaTrip'];
+    if (qaTrip != null) {
+      final riders = int.tryParse(qaTrip) ?? 3;
+      return '/qa/trip?riders=$riders';
+    }
+    return '/login';
+  }
+}

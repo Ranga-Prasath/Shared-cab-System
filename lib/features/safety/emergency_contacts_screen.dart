@@ -5,14 +5,121 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
+import 'package:shared_cab/data/mock/mock_data.dart';
 import 'package:shared_cab/providers/app_providers.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:shared_cab/models/user_model.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-class EmergencyContactsScreen extends ConsumerWidget {
+class EmergencyContactsScreen extends ConsumerStatefulWidget {
   const EmergencyContactsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<EmergencyContactsScreen> createState() =>
+      _EmergencyContactsScreenState();
+}
+
+class _EmergencyContactsScreenState
+    extends ConsumerState<EmergencyContactsScreen> {
+  Future<void> _launchPhone(String number) async {
+    final uri = Uri(scheme: 'tel', path: number);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+      return;
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Unable to open dialer for $number')),
+    );
+  }
+
+  Future<void> _showAddContactDialog() async {
+    final nameController = TextEditingController();
+    final phoneController = TextEditingController();
+    final relationController = TextEditingController();
+
+    final newContact = await showDialog<EmergencyContact>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Add Emergency Contact'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(labelText: 'Name'),
+              textCapitalization: TextCapitalization.words,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: phoneController,
+              decoration: const InputDecoration(labelText: 'Phone'),
+              keyboardType: TextInputType.phone,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: relationController,
+              decoration: const InputDecoration(labelText: 'Relationship'),
+              textCapitalization: TextCapitalization.words,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final name = nameController.text.trim();
+              final phone = phoneController.text.trim();
+              final relationship = relationController.text.trim();
+
+              if (name.isEmpty || phone.isEmpty || relationship.isEmpty) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  const SnackBar(
+                    content: Text('Enter name, phone, and relationship'),
+                  ),
+                );
+                return;
+              }
+
+              Navigator.of(dialogContext).pop(
+                EmergencyContact(
+                  id: 'ec_${DateTime.now().millisecondsSinceEpoch}',
+                  name: name,
+                  phone: phone,
+                  relationship: relationship,
+                ),
+              );
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    nameController.dispose();
+    phoneController.dispose();
+    relationController.dispose();
+
+    if (newContact == null || !mounted) return;
+
+    final baseUser = ref.read(currentUserProvider) ?? MockData.demoUser;
+    final updatedUser = baseUser.copyWith(
+      emergencyContacts: [...baseUser.emergencyContacts, newContact],
+    );
+    ref.read(currentUserOverrideProvider.notifier).state = updatedUser;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${newContact.name} added as an emergency contact'),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final user = ref.watch(effectiveCurrentUserProvider);
     final contacts = user.emergencyContacts;
     final isNight = ref.watch(effectiveNightModeProvider);
@@ -99,7 +206,7 @@ class EmergencyContactsScreen extends ConsumerWidget {
                                     Icons.phone_outlined,
                                     color: AppColors.success,
                                   ),
-                                  onPressed: () {},
+                                  onPressed: () => _launchPhone(contact.phone),
                                 ),
                               ),
                             )
@@ -110,14 +217,7 @@ class EmergencyContactsScreen extends ConsumerWidget {
                     ),
             ),
             ElevatedButton.icon(
-              onPressed: () {
-                // Demo: show add contact dialog
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Add contact feature - coming soon'),
-                  ),
-                );
-              },
+              onPressed: _showAddContactDialog,
               icon: const Icon(Icons.add),
               label: const Text('Add Contact'),
             ),

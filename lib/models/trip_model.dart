@@ -1,6 +1,8 @@
 // -- Shared Cab System --
 // Core model: Trip
 
+import 'package:shared_cab/core/utils/trip_pin_generator.dart';
+
 enum TripStatus {
   waitingForPickup,
   inProgress,
@@ -23,20 +25,20 @@ class Trip {
   final double? tripDistanceKm;
   final double? farePerPerson;
 
-  const Trip({
+  Trip({
     required this.id,
     required this.matchId,
     required this.riderIds,
     this.status = TripStatus.waitingForPickup,
     required this.startTime,
     this.endTime,
-    this.safeArrivalPin,
+    String? safeArrivalPin,
     this.isPinConfirmed = false,
     this.isNightTrip = false,
     this.panicTriggered = false,
     this.tripDistanceKm,
     this.farePerPerson,
-  });
+  }) : safeArrivalPin = safeArrivalPin ?? generateTripPin();
 
   Trip copyWith({
     TripStatus? status,

@@ -1,7 +1,11 @@
 // -- Shared Cab System --
 // Providers: All Riverpod providers
 
+import 'dart:async';
+
+import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_cab/core/services/auth_service.dart';
 import 'package:shared_cab/core/utils/night_mode_utils.dart';
 import 'package:shared_cab/data/mock/mock_data.dart';
 import 'package:shared_cab/models/recurring_ride_model.dart';
@@ -13,16 +17,67 @@ import 'package:shared_cab/models/user_model.dart';
 import 'package:shared_cab/models/location_model.dart';
 
 // Auth State
-final isLoggedInProvider = StateProvider<bool>((ref) => false);
-final currentUserProvider = StateProvider<User?>((ref) => null);
+final currentUserOverrideProvider = StateProvider<User?>((ref) => null);
+
+final authStateProvider = StreamProvider<fb.User?>((ref) {
+  return AuthService.authStateChanges;
+});
+
+final currentUserProvider = Provider<User?>((ref) {
+  final overrideUser = ref.watch(currentUserOverrideProvider);
+  if (overrideUser != null) return overrideUser;
+
+  final firebaseUser = ref.watch(authStateProvider).valueOrNull;
+  final fallbackUser = AuthService.currentUserProfile;
+  if (firebaseUser == null) return fallbackUser;
+
+  if (fallbackUser != null && fallbackUser.id == firebaseUser.uid) {
+    return fallbackUser;
+  }
+
+  final displayName =
+      firebaseUser.displayName ??
+      firebaseUser.email?.split('@').first ??
+      'User';
+
+  return User(
+    id: firebaseUser.uid,
+    name: displayName,
+    phone: '',
+    email: firebaseUser.email ?? '',
+    gender: fallbackUser?.gender ?? 'other',
+    rating: fallbackUser?.rating ?? 5.0,
+    totalTrips: fallbackUser?.totalTrips ?? 0,
+    profileImageUrl: fallbackUser?.profileImageUrl,
+    emergencyContacts: fallbackUser?.emergencyContacts ?? const [],
+    isVerified: true,
+  );
+});
+
+final isLoggedInProvider = Provider<bool>((ref) {
+  final overrideUser = ref.watch(currentUserOverrideProvider);
+  final firebaseUser = ref.watch(authStateProvider).valueOrNull;
+  return overrideUser != null ||
+      firebaseUser != null ||
+      AuthService.currentUserProfile != null;
+});
 
 final effectiveCurrentUserProvider = Provider<User>((ref) {
   return ref.watch(currentUserProvider) ?? MockData.demoUser;
 });
 
 // Night Mode
+final currentTimeProvider = StreamProvider<DateTime>((ref) async* {
+  yield DateTime.now();
+  while (true) {
+    await Future<void>.delayed(const Duration(minutes: 1));
+    yield DateTime.now();
+  }
+});
+
 final isNightModeProvider = Provider<bool>((ref) {
-  return isNightDateTime(DateTime.now());
+  final now = ref.watch(currentTimeProvider).value ?? DateTime.now();
+  return isNightDateTime(now);
 });
 
 final nightModeOverrideProvider = StateProvider<bool?>((ref) => null);

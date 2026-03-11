@@ -59,3 +59,10 @@ GoogleService-Info.plist
 # Flutter plugins
 .flutter-plugins
 .flutter-plugins-dependencies
+
+# Node / Playwright
+node_modules/
+playwright-report/
+test-results/
+.playwright-cli/
+output/

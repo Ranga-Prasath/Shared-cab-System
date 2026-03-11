@@ -11,9 +11,14 @@ import 'package:shared_cab/providers/app_providers.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (error, stackTrace) {
+    debugPrint('[main] Firebase initialization failed: $error');
+    debugPrintStack(stackTrace: stackTrace);
+  }
   runApp(const ProviderScope(child: SharedCabApp()));
 }
 
@@ -34,4 +39,3 @@ class SharedCabApp extends ConsumerWidget {
     );
   }
 }
-

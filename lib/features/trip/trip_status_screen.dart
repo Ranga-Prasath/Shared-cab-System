@@ -1,16 +1,19 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:shared_cab/core/services/auth_service.dart';
+import 'package:shared_cab/core/services/ride_service.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
-import 'package:shared_cab/data/mock/mock_data.dart';
 import 'package:shared_cab/models/ride_request_model.dart';
 import 'package:shared_cab/models/route_deviation_model.dart';
+import 'package:shared_cab/models/location_model.dart';
 import 'package:shared_cab/models/trip_model.dart';
 import 'package:shared_cab/providers/app_providers.dart';
 import 'package:shared_cab/providers/gps_provider.dart';
@@ -33,6 +36,7 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
 
   late final AnimationController _segmentController;
   late final AnimationController _pickupRippleController;
+  late final AnimationController _remoteSyncController;
 
   final ValueNotifier<_TripVisualState> _visualState = ValueNotifier(
     const _TripVisualState(),
@@ -41,6 +45,8 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
   List<LatLng> _routePoints = const [];
   LatLng _pickupLatLng = const LatLng(13.0850, 80.2101);
   LatLng _dropoffLatLng = const LatLng(12.9516, 80.2413);
+  List<LatLng> _coRiderPickupLatLngs = const [];
+  List<String> _orderedPickupAddresses = const [];
 
   double _segmentStartBearing = 0;
   double _segmentEndBearing = 0;
@@ -48,6 +54,14 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
   double _routeDistanceKm = 0;
   int _pickupRouteIndex = 0;
   LatLng? _riderCurrentLatLng;
+  StreamSubscription<RideRequest?>? _rideSyncSubscription;
+  bool _isPrimaryTripDriver = false;
+  bool _isMapExpanded = false;
+  String? _syncRideId;
+  DateTime _lastSyncTime = DateTime.fromMillisecondsSinceEpoch(0);
+  int? _lastRemoteSyncAtMs;
+  _RemoteSyncSnapshot? _remoteSyncStart;
+  _RemoteSyncSnapshot? _remoteSyncTarget;
 
   DateTime _lastCameraFrame = DateTime.fromMillisecondsSinceEpoch(0);
   StreamSubscription<Position>? _riderPositionSubscription;
@@ -68,6 +82,10 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     )..repeat();
+    _remoteSyncController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1450),
+    )..addListener(_onRemoteSyncTick);
 
     _startRiderLocationTracking();
     WidgetsBinding.instance.addPostFrameCallback((_) => _prepareTripScene());
@@ -80,7 +98,11 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
       ..removeStatusListener(_onSegmentStatusChange)
       ..dispose();
     _pickupRippleController.dispose();
+    _remoteSyncController
+      ..removeListener(_onRemoteSyncTick)
+      ..dispose();
     _riderPositionSubscription?.cancel();
+    _rideSyncSubscription?.cancel();
     _visualState.dispose();
     super.dispose();
   }
@@ -120,35 +142,90 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
     ref.read(routeDeviationProvider.notifier).state = null;
     ref.read(deviationAlertDismissedProvider.notifier).state = false;
 
-    final rideRequest = ref.read(currentRideRequestProvider);
-    if (rideRequest != null) {
+    final localRideRequest = ref.read(currentRideRequestProvider);
+    if (localRideRequest != null) {
       _pickupLatLng = LatLng(
-        rideRequest.pickup.latitude,
-        rideRequest.pickup.longitude,
+        localRideRequest.pickup.latitude,
+        localRideRequest.pickup.longitude,
       );
       _dropoffLatLng = LatLng(
-        rideRequest.dropoff.latitude,
-        rideRequest.dropoff.longitude,
+        localRideRequest.dropoff.latitude,
+        localRideRequest.dropoff.longitude,
       );
     }
+
+    final syncAvailable = Firebase.apps.isNotEmpty;
+    final canonicalRideId = syncAvailable
+        ? _resolveSyncRideId(ref.read(activeTripProvider))
+        : null;
+    final canonicalRide = canonicalRideId == null
+        ? null
+        : await RideService.getRide(canonicalRideId);
+    final routeRide = canonicalRide ?? localRideRequest;
+    if (canonicalRide != null) {
+      _pickupLatLng = LatLng(
+        canonicalRide.pickup.latitude,
+        canonicalRide.pickup.longitude,
+      );
+      _dropoffLatLng = LatLng(
+        canonicalRide.dropoff.latitude,
+        canonicalRide.dropoff.longitude,
+      );
+    }
+
+    final hostPickupLatLng = _pickupLatLng;
+    final pickupAddressByKey = <String, String>{
+      _pickupKey(hostPickupLatLng):
+          routeRide?.pickup.address ??
+          localRideRequest?.pickup.address ??
+          'Pickup Location',
+    };
+
+    final acceptedPickupWaypoints = routeRide == null
+        ? const <LatLng>[]
+        : [
+            for (final pickupStop in routeRide.acceptedPickupStops)
+              () {
+                final pickupPoint = LatLng(
+                  pickupStop.latitude,
+                  pickupStop.longitude,
+                );
+                pickupAddressByKey[_pickupKey(pickupPoint)] =
+                    pickupStop.address;
+                return pickupPoint;
+              }(),
+          ];
+    final pickupWaypoints = TripRouteBuilder.orderPickupWaypoints(
+      hostPickup: hostPickupLatLng,
+      coRiderPickups: acceptedPickupWaypoints,
+      destination: _dropoffLatLng,
+    );
+    _orderedPickupAddresses = pickupWaypoints
+        .map((pickupPoint) => pickupAddressByKey[_pickupKey(pickupPoint)])
+        .whereType<String>()
+        .toList();
+    _pickupLatLng = pickupWaypoints.first;
+    _coRiderPickupLatLngs = pickupWaypoints.skip(1).toList();
 
     final approachStart = _offsetPoint(
       _pickupLatLng,
       distanceMeters: 1800,
       bearingDegrees: 312,
     );
+
     final toPickup = await TripRouteBuilder.buildRoadFirstRoute(
       approachStart,
-      _pickupLatLng,
+      pickupWaypoints.first,
       minPoints: 80,
     );
-    final toDropoff = await TripRouteBuilder.buildRoadFirstRoute(
-      _pickupLatLng,
+
+    final toDropoff = await _buildRouteThroughWaypoints(
+      pickupWaypoints,
       _dropoffLatLng,
-      minPoints: 140,
     );
-    _pickupRouteIndex = toPickup.length - 1;
-    _routePoints = [...toPickup, ...toDropoff.skip(1)];
+
+    _pickupRouteIndex = (toPickup.length - 1) + toDropoff.finalPickupRouteIndex;
+    _routePoints = [...toPickup, ...toDropoff.points.skip(1)];
 
     if (_routePoints.isEmpty) {
       _routePoints = [_pickupLatLng, _dropoffLatLng];
@@ -173,12 +250,56 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
       cabBearing: _segmentStartBearing,
     );
 
+    await _setupTripSync();
     _fitRouteBounds();
 
     await Future<void>.delayed(const Duration(milliseconds: 420));
     if (!mounted || _routePoints.length < 2) return;
 
-    _segmentController.forward(from: 0);
+    if (_isPrimaryTripDriver) {
+      _segmentController.forward(from: 0);
+    }
+  }
+
+  String _pickupKey(LatLng point) {
+    return '${point.latitude.toStringAsFixed(5)}|${point.longitude.toStringAsFixed(5)}';
+  }
+
+  Future<_WaypointRouteResult> _buildRouteThroughWaypoints(
+    List<LatLng> pickups,
+    LatLng destination,
+  ) async {
+    if (pickups.isEmpty) {
+      return _WaypointRouteResult(
+        points: [destination],
+        finalPickupRouteIndex: 0,
+      );
+    }
+    final route = <LatLng>[pickups.first];
+    var current = pickups.first;
+    var finalPickupRouteIndex = 0;
+
+    for (var i = 1; i < pickups.length; i++) {
+      final segment = await TripRouteBuilder.buildRoadFirstRoute(
+        current,
+        pickups[i],
+        minPoints: 70,
+      );
+      route.addAll(segment.skip(1));
+      current = pickups[i];
+      finalPickupRouteIndex = route.length - 1;
+    }
+
+    final destinationSegment = await TripRouteBuilder.buildRoadFirstRoute(
+      current,
+      destination,
+      minPoints: 140,
+    );
+    route.addAll(destinationSegment.skip(1));
+    return _WaypointRouteResult(
+      points: route,
+      finalPickupRouteIndex: finalPickupRouteIndex,
+    );
   }
 
   LatLng _offsetPoint(
@@ -207,7 +328,7 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
   }
 
   void _onSegmentTick() {
-    if (!mounted || _routePoints.length < 2) return;
+    if (!mounted || _routePoints.length < 2 || !_isPrimaryTripDriver) return;
 
     final state = _visualState.value;
     final safeSegment = state.segmentIndex.clamp(0, _routePoints.length - 2);
@@ -235,13 +356,31 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
       progress: progress,
       cabBearing: cabBearing,
     );
+    final segmentProgress = segmentT.clamp(0.0, 1.0).toDouble();
+    final now = DateTime.now();
+    if (now.difference(_lastSyncTime) > const Duration(milliseconds: 1500)) {
+      _lastSyncTime = now;
+      unawaited(
+        _broadcastCabSyncState(
+          cabPosition: cabPosition,
+          segmentIndex: safeSegment,
+          segmentProgress: segmentProgress,
+          cabBearing: cabBearing,
+        ),
+      );
+    }
 
     _updateTripMilestones(progress);
+    _updateRouteDeviation(cabPosition);
     _followCabCamera(cabPosition);
   }
 
   void _onSegmentStatusChange(AnimationStatus status) {
-    if (status != AnimationStatus.completed || !mounted) return;
+    if (status != AnimationStatus.completed ||
+        !mounted ||
+        !_isPrimaryTripDriver) {
+      return;
+    }
 
     final state = _visualState.value;
 
@@ -261,7 +400,47 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
     _segmentController.forward(from: 0);
   }
 
+  void _onRemoteSyncTick() {
+    if (!mounted ||
+        _isPrimaryTripDriver ||
+        _routePoints.length < 2 ||
+        _remoteSyncStart == null ||
+        _remoteSyncTarget == null) {
+      return;
+    }
+
+    final startSnapshot = _remoteSyncStart!;
+    final targetSnapshot = _remoteSyncTarget!;
+    final t = Curves.linear.transform(_remoteSyncController.value);
+    final routeScalar =
+        startSnapshot.routeScalar +
+        ((targetSnapshot.routeScalar - startSnapshot.routeScalar) * t);
+    final frame = TripMapMath.routeFrameFromScalar(
+      routeScalar: routeScalar,
+      pointCount: _routePoints.length,
+    );
+    final position = TripMapMath.lerpLatLng(
+      startSnapshot.position,
+      targetSnapshot.position,
+      t,
+    );
+    final bearing = TripMapMath.lerpBearing(
+      startSnapshot.bearing,
+      targetSnapshot.bearing,
+      t,
+    );
+
+    _visualState.value = _visualState.value.copyWith(
+      cabPosition: position,
+      segmentIndex: frame.segmentIndex,
+      progress: frame.overallProgress,
+      cabBearing: bearing,
+    );
+    _followCabCamera(position);
+  }
+
   void _updateTripMilestones(double progress) {
+    if (!_isPrimaryTripDriver) return;
     final trip = ref.read(activeTripProvider);
     if (trip == null) return;
 
@@ -271,14 +450,68 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
       ref.read(activeTripProvider.notifier).state = trip.copyWith(
         status: TripStatus.inProgress,
       );
+      if (_isPrimaryTripDriver && _syncRideId != null) {
+        unawaited(
+          RideService.updateRideStatus(_syncRideId!, RideStatus.active),
+        );
+      }
+    }
+  }
+
+  void _updateRouteDeviation(LatLng actualPosition) {
+    if (_routePoints.isEmpty) return;
+
+    LatLng nearestPoint = _routePoints.first;
+    var minDistanceKm = TripMapMath.distanceKmBetween(
+      actualPosition,
+      nearestPoint,
+    );
+
+    for (final point in _routePoints.skip(1)) {
+      final distanceKm = TripMapMath.distanceKmBetween(actualPosition, point);
+      if (distanceKm < minDistanceKm) {
+        minDistanceKm = distanceKm;
+        nearestPoint = point;
+      }
     }
 
-    if (progress >= 0.72 && !_deviationTriggered) {
-      _deviationTriggered = true;
-      ref.read(routeDeviationProvider.notifier).state =
-          MockData.getMockDeviation(trip.id);
-      ref.read(deviationAlertDismissedProvider.notifier).state = false;
+    if (minDistanceKm <= 1.0) {
+      if (_deviationTriggered) {
+        _deviationTriggered = false;
+        ref.read(routeDeviationProvider.notifier).state = null;
+      }
+      return;
     }
+
+    if (_deviationTriggered) return;
+
+    _deviationTriggered = true;
+    final trip = ref.read(activeTripProvider);
+    if (trip == null) return;
+
+    final severity = minDistanceKm >= 2
+        ? DeviationSeverity.high
+        : minDistanceKm >= 1.5
+        ? DeviationSeverity.medium
+        : DeviationSeverity.low;
+
+    ref.read(routeDeviationProvider.notifier).state = RouteDeviation(
+      tripId: trip.id,
+      deviationDistanceKm: minDistanceKm,
+      expectedLocation: LocationPoint(
+        latitude: nearestPoint.latitude,
+        longitude: nearestPoint.longitude,
+        address: 'Expected route location',
+      ),
+      actualLocation: LocationPoint(
+        latitude: actualPosition.latitude,
+        longitude: actualPosition.longitude,
+        address: 'Current cab location',
+      ),
+      detectedAt: DateTime.now(),
+      severity: severity,
+    );
+    ref.read(deviationAlertDismissedProvider.notifier).state = false;
   }
 
   void _onTripArrived() {
@@ -300,6 +533,198 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
     if (destination != null) {
       _followCabCamera(destination, force: true);
     }
+
+    if (_isPrimaryTripDriver && _syncRideId != null) {
+      unawaited(
+        RideService.updateRideStatus(_syncRideId!, RideStatus.completed),
+      );
+    }
+  }
+
+  Future<void> _setupTripSync() async {
+    _rideSyncSubscription?.cancel();
+    final trip = ref.read(activeTripProvider);
+    final rideId = _resolveSyncRideId(trip);
+    _syncRideId = rideId;
+    if (rideId == null || Firebase.apps.isEmpty) {
+      _isPrimaryTripDriver = true;
+      _remoteSyncController.stop();
+      return;
+    }
+
+    final currentUid = AuthService.currentUserId;
+    final providerUserId = ref.read(currentUserProvider)?.id;
+    final effectiveUserId = ref.read(effectiveCurrentUserProvider).id;
+    final ride = await RideService.getRide(rideId);
+    final localUserIds = <String>{
+      if (currentUid != null && currentUid.isNotEmpty) currentUid,
+      if (providerUserId != null && providerUserId.isNotEmpty) providerUserId,
+      if (effectiveUserId.isNotEmpty) effectiveUserId,
+    };
+    _isPrimaryTripDriver = ride == null
+        ? true
+        : localUserIds.contains(ride.userId);
+    if (_isPrimaryTripDriver) {
+      _remoteSyncController.stop();
+      _remoteSyncStart = null;
+      _remoteSyncTarget = null;
+      return;
+    }
+
+    _rideSyncSubscription = RideService.rideStream(rideId).listen((rideUpdate) {
+      if (!mounted || rideUpdate == null || _isPrimaryTripDriver) return;
+      _applyRemoteCabSync(rideUpdate);
+    });
+  }
+
+  String? _resolveSyncRideId(Trip? trip) {
+    final request = ref.read(currentRideRequestProvider);
+    final matchId = trip?.matchId ?? '';
+    if (matchId.startsWith('direct_') || matchId.startsWith('shared_')) {
+      final parts = matchId.split('_');
+      if (parts.length >= 2) {
+        return parts.sublist(1).join('_');
+      }
+    }
+    return request?.id;
+  }
+
+  void _applyRemoteCabSync(RideRequest rideUpdate) {
+    final remoteLat = rideUpdate.cabLat;
+    final remoteLng = rideUpdate.cabLng;
+    if (remoteLat == null || remoteLng == null || _routePoints.length < 2) {
+      return;
+    }
+
+    final currentUpdateAtMs =
+        rideUpdate.cabUpdatedAt ?? DateTime.now().millisecondsSinceEpoch;
+    final previousUpdateAtMs = _lastRemoteSyncAtMs;
+    if (previousUpdateAtMs != null && currentUpdateAtMs <= previousUpdateAtMs) {
+      return;
+    }
+
+    final segmentIndex = (rideUpdate.cabSegmentIndex ?? 0).clamp(
+      0,
+      _routePoints.length - 2,
+    );
+    final segmentProgress = (rideUpdate.cabSegmentProgress ?? 0.0)
+        .clamp(0.0, 1.0)
+        .toDouble();
+    final routeScalar = TripMapMath.routeScalarFromSegment(
+      segmentIndex: segmentIndex,
+      segmentProgress: segmentProgress,
+      pointCount: _routePoints.length,
+    );
+    final routeProgress = TripMapMath.routeFrameFromScalar(
+      routeScalar: routeScalar,
+      pointCount: _routePoints.length,
+    ).overallProgress;
+    final cabBearing =
+        rideUpdate.cabBearing ??
+        TripMapMath.bearingBetween(
+          _routePoints[segmentIndex],
+          _routePoints[segmentIndex + 1],
+        );
+
+    _segmentStartBearing = TripMapMath.bearingBetween(
+      _routePoints[segmentIndex],
+      _routePoints[segmentIndex + 1],
+    );
+    _segmentEndBearing = _segmentStartBearing;
+
+    final remotePosition = LatLng(remoteLat, remoteLng);
+    final targetSnapshot = _RemoteSyncSnapshot(
+      position: remotePosition,
+      routeScalar: routeScalar,
+      bearing: cabBearing,
+    );
+    final currentState = _visualState.value;
+    final currentPosition = currentState.cabPosition;
+    final currentScalar = TripMapMath.routeScalarFromProgress(
+      overallProgress: currentState.progress,
+      pointCount: _routePoints.length,
+    );
+
+    if (currentPosition == null) {
+      _visualState.value = currentState.copyWith(
+        cabPosition: remotePosition,
+        segmentIndex: segmentIndex,
+        progress: routeProgress,
+        cabBearing: cabBearing,
+      );
+    } else {
+      final startSnapshot = _RemoteSyncSnapshot(
+        position: currentPosition,
+        routeScalar: currentScalar,
+        bearing: currentState.cabBearing,
+      );
+      final scalarDelta =
+          (targetSnapshot.routeScalar - startSnapshot.routeScalar).abs();
+      final distanceDeltaKm = TripMapMath.distanceKmBetween(
+        startSnapshot.position,
+        targetSnapshot.position,
+      );
+
+      if (scalarDelta < 0.01 && distanceDeltaKm < 0.005) {
+        _visualState.value = currentState.copyWith(
+          cabPosition: remotePosition,
+          segmentIndex: segmentIndex,
+          progress: routeProgress,
+          cabBearing: cabBearing,
+        );
+      } else {
+        _remoteSyncStart = startSnapshot;
+        _remoteSyncTarget = targetSnapshot;
+        _remoteSyncController
+          ..stop()
+          ..duration = TripMapMath.recommendedRemoteSyncDuration(
+            previousUpdateAtMs: previousUpdateAtMs,
+            currentUpdateAtMs: currentUpdateAtMs,
+          )
+          ..forward(from: 0);
+      }
+    }
+
+    _lastRemoteSyncAtMs = currentUpdateAtMs;
+    _updateRouteDeviation(remotePosition);
+    if (!_remoteSyncController.isAnimating) {
+      _followCabCamera(remotePosition);
+    }
+
+    if (rideUpdate.status == RideStatus.active) {
+      final currentTrip = ref.read(activeTripProvider);
+      if (currentTrip != null &&
+          currentTrip.status == TripStatus.waitingForPickup) {
+        ref.read(activeTripProvider.notifier).state = currentTrip.copyWith(
+          status: TripStatus.inProgress,
+        );
+      }
+    } else if (rideUpdate.status == RideStatus.completed) {
+      final currentTrip = ref.read(activeTripProvider);
+      if (currentTrip != null &&
+          currentTrip.status != TripStatus.arrivedDestination) {
+        ref.read(activeTripProvider.notifier).state = currentTrip.copyWith(
+          status: TripStatus.arrivedDestination,
+        );
+      }
+    }
+  }
+
+  Future<void> _broadcastCabSyncState({
+    required LatLng cabPosition,
+    required int segmentIndex,
+    required double segmentProgress,
+    required double cabBearing,
+  }) async {
+    final rideId = _syncRideId;
+    if (rideId == null) return;
+    await RideService.updateCabSyncState(
+      rideId: rideId,
+      cabPosition: cabPosition,
+      segmentIndex: segmentIndex,
+      segmentProgress: segmentProgress,
+      bearingDegrees: cabBearing,
+    );
   }
 
   void _followCabCamera(LatLng cabPosition, {bool force = false}) {
@@ -310,6 +735,58 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
     }
     _lastCameraFrame = now;
     _mapController.move(cabPosition, 16.0);
+  }
+
+  Future<void> _toggleExpandedMap() async {
+    setState(() {
+      _isMapExpanded = !_isMapExpanded;
+    });
+
+    // WHY: wait for the scaffold to settle before refitting bounds, otherwise
+    // the old bottom-sheet padding is still applied to the camera fit.
+    await Future<void>.delayed(const Duration(milliseconds: 180));
+    if (!mounted) return;
+    _fitRouteBounds();
+  }
+
+  Future<void> _centerMapOnLiveLocation() async {
+    final cachedRiderLocation = _riderCurrentLatLng;
+    if (cachedRiderLocation != null) {
+      _mapController.move(cachedRiderLocation, 16.0);
+      _showMapMessage('Centered on your live location');
+      return;
+    }
+
+    try {
+      final currentPosition = await GpsService.getCurrentPosition().timeout(
+        const Duration(seconds: 3),
+      );
+      if (!mounted) return;
+      if (currentPosition != null) {
+        final liveLocation = LatLng(
+          currentPosition.latitude,
+          currentPosition.longitude,
+        );
+        setState(() {
+          _riderCurrentLatLng = liveLocation;
+        });
+        _mapController.move(liveLocation, 16.0);
+        _showMapMessage('Centered on your live location');
+        return;
+      }
+    } catch (_) {
+      // Fall through to the next best live target for demo stability.
+    }
+
+    final cabLocation = _visualState.value.cabPosition;
+    if (cabLocation != null) {
+      _mapController.move(cabLocation, 16.0);
+      _showMapMessage('Centered on the live cab');
+      return;
+    }
+
+    _fitRouteBounds();
+    _showMapMessage('Showing the full trip route');
   }
 
   void _fitRouteBounds() {
@@ -326,9 +803,22 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
     _mapController.fitCamera(
       CameraFit.bounds(
         bounds: LatLngBounds.fromPoints(boundsPoints),
-        padding: const EdgeInsets.fromLTRB(56, 120, 56, 310),
+        padding: EdgeInsets.fromLTRB(56, 120, 56, _isMapExpanded ? 72 : 310),
       ),
     );
+  }
+
+  void _showMapMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
   }
 
   void _dismissDeviation() {
@@ -425,6 +915,14 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
         borderColor: AppColors.success,
         borderStrokeWidth: 1.4,
       ),
+      for (final pickup in _coRiderPickupLatLngs)
+        CircleMarker(
+          point: pickup,
+          radius: 7,
+          color: AppColors.warning.withValues(alpha: 0.18),
+          borderColor: AppColors.warning,
+          borderStrokeWidth: 1.2,
+        ),
     ];
   }
 
@@ -467,6 +965,40 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
           ],
         ),
       ),
+      for (var index = 0; index < _coRiderPickupLatLngs.length; index++)
+        Marker(
+          point: _coRiderPickupLatLngs[index],
+          width: 120,
+          height: 60,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(6),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.18),
+                      blurRadius: 6,
+                    ),
+                  ],
+                ),
+                child: Text(
+                  'PICKUP ${index + 2}',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.warning,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 2),
+              const Icon(Icons.trip_origin, color: AppColors.warning, size: 18),
+            ],
+          ),
+        ),
       Marker(
         point: _dropoffLatLng,
         width: 86,
@@ -648,67 +1180,102 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
               ),
             ),
 
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: ValueListenableBuilder<_TripVisualState>(
-              valueListenable: _visualState,
-              builder: (context, state, _) {
-                final pickupFraction = _pickupRouteIndex <= 0
-                    ? 0.0
-                    : (((_pickupRouteIndex - state.segmentIndex) -
-                                      state.progress)
-                                  .clamp(0.0, _pickupRouteIndex.toDouble()) /
-                              _pickupRouteIndex)
-                          .toDouble();
-                final isApproachingPickup =
-                    state.segmentIndex < _pickupRouteIndex;
-                final pickupEtaMin = (1 + (pickupFraction * 8)).round();
-                final destinationEtaMin = (1 + ((1 - state.progress) * 12))
-                    .clamp(1, 12)
-                    .round();
+          if (!_isMapExpanded)
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: ValueListenableBuilder<_TripVisualState>(
+                valueListenable: _visualState,
+                builder: (context, state, _) {
+                  final pickupFraction = _pickupRouteIndex <= 0
+                      ? 0.0
+                      : (((_pickupRouteIndex - state.segmentIndex) -
+                                        state.progress)
+                                    .clamp(0.0, _pickupRouteIndex.toDouble()) /
+                                _pickupRouteIndex)
+                            .toDouble();
+                  final isApproachingPickup =
+                      state.segmentIndex < _pickupRouteIndex;
+                  final pickupEtaMin = (1 + (pickupFraction * 8)).round();
+                  final destinationEtaMin = (1 + ((1 - state.progress) * 12))
+                      .clamp(1, 12)
+                      .round();
 
-                return _TripBottomSheet(
-                  trip: trip,
-                  rideRequest: rideRequest,
-                  isNight: isNight,
-                  accentColor: primaryAccent,
-                  progress: state.progress,
-                  routeDistanceKm: _routeDistanceKm,
-                  isApproachingPickup: isApproachingPickup,
-                  pickupEtaMin: pickupEtaMin,
-                  destinationEtaMin: destinationEtaMin,
-                );
-              },
+                  return _TripBottomSheet(
+                    trip: trip,
+                    rideRequest: rideRequest,
+                    pickupAddress: _orderedPickupAddresses.isNotEmpty
+                        ? _orderedPickupAddresses.first
+                        : rideRequest?.pickup.address ?? 'Pickup Location',
+                    isNight: isNight,
+                    accentColor: primaryAccent,
+                    progress: state.progress,
+                    routeDistanceKm: _routeDistanceKm,
+                    isApproachingPickup: isApproachingPickup,
+                    pickupEtaMin: pickupEtaMin,
+                    destinationEtaMin: destinationEtaMin,
+                  );
+                },
+              ),
             ),
-          ),
 
           Positioned(
-            bottom: 280,
+            bottom: _isMapExpanded ? 24 : 280,
             right: 16,
             child: FloatingActionButton.small(
-              onPressed: _fitRouteBounds,
+              onPressed: _toggleExpandedMap,
               heroTag: 'trip_recenter',
+              tooltip: _isMapExpanded ? 'Exit full screen map' : 'Expand map',
               backgroundColor: Colors.white,
-              child: Icon(Icons.zoom_out_map_rounded, color: primaryAccent),
+              child: Icon(
+                _isMapExpanded
+                    ? Icons.fullscreen_exit_rounded
+                    : Icons.zoom_out_map_rounded,
+                color: primaryAccent,
+              ),
             ),
           ),
           Positioned(
-            bottom: 336,
+            bottom: _isMapExpanded ? 80 : 336,
             right: 16,
             child: FloatingActionButton.small(
-              onPressed: () {
-                final riderLocation = _riderCurrentLatLng;
-                if (riderLocation != null) {
-                  _mapController.move(riderLocation, 16.0);
-                }
-              },
+              onPressed: _centerMapOnLiveLocation,
               heroTag: 'trip_my_location',
+              tooltip: 'Center on live position',
               backgroundColor: Colors.white,
               child: Icon(Icons.my_location_rounded, color: primaryAccent),
             ),
           ),
+          if (_isMapExpanded)
+            Positioned(
+              left: 16,
+              bottom: 24,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.94),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.14),
+                      blurRadius: 12,
+                    ),
+                  ],
+                ),
+                child: const Text(
+                  'Full map mode',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -943,6 +1510,7 @@ class _DeviationBanner extends StatelessWidget {
 class _TripBottomSheet extends StatelessWidget {
   final Trip trip;
   final RideRequest? rideRequest;
+  final String pickupAddress;
   final bool isNight;
   final Color accentColor;
   final double progress;
@@ -954,6 +1522,7 @@ class _TripBottomSheet extends StatelessWidget {
   const _TripBottomSheet({
     required this.trip,
     required this.rideRequest,
+    required this.pickupAddress,
     required this.isNight,
     required this.accentColor,
     required this.progress,
@@ -1021,7 +1590,7 @@ class _TripBottomSheet extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      rideRequest?.pickup.address ?? 'Pickup Location',
+                      pickupAddress,
                       style: const TextStyle(
                         fontWeight: FontWeight.w600,
                         fontSize: 13,
@@ -1214,6 +1783,28 @@ class _TripBottomSheet extends StatelessWidget {
       ),
     );
   }
+}
+
+class _WaypointRouteResult {
+  final List<LatLng> points;
+  final int finalPickupRouteIndex;
+
+  const _WaypointRouteResult({
+    required this.points,
+    required this.finalPickupRouteIndex,
+  });
+}
+
+class _RemoteSyncSnapshot {
+  final LatLng position;
+  final double routeScalar;
+  final double bearing;
+
+  const _RemoteSyncSnapshot({
+    required this.position,
+    required this.routeScalar,
+    required this.bearing,
+  });
 }
 
 class _InfoChip extends StatelessWidget {

@@ -11,6 +11,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:shared_cab/core/services/geocoding_service.dart';
 import 'package:shared_cab/core/services/ride_service.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
+import 'package:shared_cab/core/utils/trip_pin_generator.dart';
 import 'package:shared_cab/core/utils/night_mode_utils.dart';
 import 'package:shared_cab/models/location_model.dart';
 import 'package:shared_cab/models/ride_request_model.dart';
@@ -18,6 +19,8 @@ import 'package:shared_cab/models/trip_model.dart';
 import 'package:shared_cab/providers/app_providers.dart';
 import 'package:shared_cab/providers/gps_provider.dart';
 import 'package:uuid/uuid.dart';
+
+import '../trip/utils/trip_route_builder.dart';
 
 class CreateRideScreen extends ConsumerStatefulWidget {
   const CreateRideScreen({super.key});
@@ -28,6 +31,7 @@ class CreateRideScreen extends ConsumerStatefulWidget {
 
 class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
   final MapController _mapController = MapController();
+  final TextEditingController _pickupSearchController = TextEditingController();
   final TextEditingController _dropoffSearchController =
       TextEditingController();
   final TextEditingController _pickupSearchController =
@@ -42,10 +46,20 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
   bool _locationUnavailable = false;
   String? _pendingAction;
 
+<<<<<<< HEAD
   // Drop-off search state
+=======
+  // Search state
+  List<LocationPoint> _pickupSearchResults = [];
+  bool _isSearchingPickup = false;
+>>>>>>> 80114ce (Polish trip routing and demo verification)
   List<LocationPoint> _searchResults = [];
   bool _isSearching = false;
+  Timer? _pickupSearchDebounce;
   Timer? _searchDebounce;
+  List<LatLng> _previewRoutePoints = const [];
+  bool _isLoadingPreviewRoute = false;
+  int _previewRouteRequestId = 0;
 
   // Pickup search state
   List<LocationPoint> _pickupSearchResults = [];
@@ -55,13 +69,19 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(RideService.cancelMyPreviousRides());
     _setPickupFromCurrentLocation();
   }
 
   @override
   void dispose() {
-    _dropoffSearchController.dispose();
     _pickupSearchController.dispose();
+    _dropoffSearchController.dispose();
+<<<<<<< HEAD
+    _pickupSearchController.dispose();
+=======
+    _pickupSearchDebounce?.cancel();
+>>>>>>> 80114ce (Polish trip routing and demo verification)
     _searchDebounce?.cancel();
     _pickupSearchDebounce?.cancel();
     super.dispose();
@@ -98,7 +118,10 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
         address: address,
       );
       _pickupSearchController.text = address;
+<<<<<<< HEAD
       _pickupSearchResults = [];
+=======
+>>>>>>> 80114ce (Polish trip routing and demo verification)
       _isLocatingPickup = false;
       _locationUnavailable = false;
     });
@@ -107,6 +130,37 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
       if (!mounted) return;
       _focusRouteOrPickup();
     });
+    unawaited(_refreshPreviewRoute());
+  }
+
+  void _onPickupSearchChanged(String query) {
+    _pickupSearchDebounce?.cancel();
+    if (query.trim().length < 3) {
+      setState(() {
+        _pickupSearchResults = [];
+        _isSearchingPickup = false;
+      });
+      return;
+    }
+    setState(() => _isSearchingPickup = true);
+    _pickupSearchDebounce = Timer(const Duration(milliseconds: 600), () async {
+      final results = await GeocodingService.searchPlaces(query);
+      if (!mounted) return;
+      setState(() {
+        _pickupSearchResults = results;
+        _isSearchingPickup = false;
+      });
+    });
+  }
+
+  void _selectPickup(LocationPoint location) {
+    setState(() {
+      _pickup = location;
+      _pickupSearchController.text = location.address;
+      _pickupSearchResults = [];
+    });
+    _focusRouteOrPickup();
+    unawaited(_refreshPreviewRoute());
   }
 
   void _onDropoffSearchChanged(String query) {
@@ -165,6 +219,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
       _searchResults = [];
     });
     _focusRouteOrPickup();
+    unawaited(_refreshPreviewRoute());
   }
 
   Future<void> _createRide({required bool startNow}) async {
@@ -201,64 +256,160 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
       _pendingAction = startNow ? 'start' : 'shared';
     });
 
-    await Future.delayed(const Duration(milliseconds: 600));
-
-    final currentUser = ref.read(effectiveCurrentUserProvider);
-
-    final ride = RideRequest(
-      id: const Uuid().v4(),
-      userId: currentUser.id,
-      userName: currentUser.name,
-      userGender: currentUser.gender,
-      pickup: _pickup!,
-      dropoff: _dropoff!,
-      departureTime: departureTime,
-      createdAt: DateTime.now(),
-    );
-
-    ref.read(currentRideRequestProvider.notifier).state = ride;
-
-    // Publish to Firestore so other users can see this ride
     try {
-      await RideService.publishRide(ride);
-    } catch (_) {
-      // Silently fail if Firestore write fails; local flow still works
-    }
+      await Future.delayed(const Duration(milliseconds: 600));
 
-    if (startNow) {
-      final distanceKm = ride.pickup.distanceTo(ride.dropoff);
-      final fareEstimate = (distanceKm * 22).clamp(120, 900).toDouble();
-
-      final trip = Trip(
-        id: 'trip_${DateTime.now().millisecondsSinceEpoch}',
-        matchId: 'direct_${ride.id}',
-        riderIds: [ref.read(effectiveCurrentUserProvider).id],
-        status: TripStatus.waitingForPickup,
-        startTime: DateTime.now(),
-        isNightTrip: ride.isNightRide,
-        safeArrivalPin: '4829',
-        farePerPerson: fareEstimate,
-        tripDistanceKm: distanceKm,
+      final pickup = _pickup!;
+      final dropoff = _dropoff!;
+      final currentUser = ref.read(effectiveCurrentUserProvider);
+      final previewOrFallbackRoute = await _resolveRouteForRide(
+        pickup: pickup,
+        dropoff: dropoff,
+      );
+      final storedRoutePath = TripRouteBuilder.compressRouteForStorage(
+        previewOrFallbackRoute,
+      );
+      final distanceKm = TripRouteBuilder.estimatedDistanceKm(
+        previewOrFallbackRoute,
       );
 
-      ref.read(panicModeProvider.notifier).state = false;
-      ref.read(activeTripProvider.notifier).state = trip;
+      final ride = RideRequest(
+        id: const Uuid().v4(),
+        userId: currentUser.id,
+        userName: currentUser.name,
+        userGender: currentUser.gender,
+        pickup: pickup,
+        dropoff: dropoff,
+        departureTime: departureTime,
+        createdAt: DateTime.now(),
+        routePath: storedRoutePath
+            .map(
+              (point) => RideRoutePoint(
+                latitude: point.latitude,
+                longitude: point.longitude,
+              ),
+            )
+            .toList(),
+      );
 
+      ref.read(currentRideRequestProvider.notifier).state = ride;
+
+      if (!startNow) {
+        await _publishSharedRide(ride);
+        if (!mounted) return;
+        GoRouter.of(context).go('/matches/${ride.id}');
+      } else {
+        unawaited(
+          RideService.publishRide(
+            ride,
+          ).timeout(const Duration(seconds: 3)).catchError((_) {
+            // Direct rides can continue locally even if sync is slow.
+          }),
+        );
+      }
+
+      if (startNow) {
+        final fareEstimate = (distanceKm * 22).clamp(120, 900).toDouble();
+
+        final trip = Trip(
+          id: 'trip_${DateTime.now().millisecondsSinceEpoch}',
+          matchId: 'direct_${ride.id}',
+          riderIds: [ref.read(effectiveCurrentUserProvider).id],
+          status: TripStatus.waitingForPickup,
+          startTime: DateTime.now(),
+          isNightTrip: ride.isNightRide,
+          safeArrivalPin: generateTripPin(),
+          farePerPerson: fareEstimate,
+          tripDistanceKm: distanceKm,
+        );
+
+        ref.read(panicModeProvider.notifier).state = false;
+        ref.read(activeTripProvider.notifier).state = trip;
+
+        if (!mounted) return;
+        context.goNamed('tripStatus', pathParameters: {'tripId': trip.id});
+      }
+    } catch (error, stackTrace) {
+      debugPrint('[CreateRideScreen._createRide] $error');
+      debugPrintStack(stackTrace: stackTrace);
       if (!mounted) return;
-      setState(() {
-        _isCreating = false;
-        _pendingAction = null;
-      });
-      context.goNamed('tripStatus', pathParameters: {'tripId': trip.id});
-      return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not open co-rider search. Please try again.'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isCreating = false;
+          _pendingAction = null;
+        });
+      }
+    }
+  }
+
+  Future<List<LatLng>> _resolveRouteForRide({
+    required LocationPoint pickup,
+    required LocationPoint dropoff,
+  }) async {
+    if (_previewRoutePoints.length > 1 && !_isLoadingPreviewRoute) {
+      return _previewRoutePoints;
     }
 
-    if (!mounted) return;
-    setState(() {
-      _isCreating = false;
-      _pendingAction = null;
-    });
-    context.goNamed('matches', pathParameters: {'rideId': ride.id});
+    final start = LatLng(pickup.latitude, pickup.longitude);
+    final end = LatLng(dropoff.latitude, dropoff.longitude);
+
+    if (_isLoadingPreviewRoute) {
+      final waitDeadline = DateTime.now().add(const Duration(seconds: 2));
+      while (mounted &&
+          _isLoadingPreviewRoute &&
+          DateTime.now().isBefore(waitDeadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+      }
+      if (_previewRoutePoints.length > 1) {
+        return _previewRoutePoints;
+      }
+    }
+
+    try {
+      final route = await TripRouteBuilder.buildRoadFirstRoute(
+        start,
+        end,
+        minPoints: 80,
+      ).timeout(const Duration(seconds: 4));
+      if (route.length > 1) {
+        return route;
+      }
+    } catch (_) {
+      // Fall through to the deterministic local route.
+    }
+
+    return TripRouteBuilder.buildHighFidelityMockRoute(
+      start,
+      end,
+      minPoints: 80,
+    );
+  }
+
+  Future<void> _publishSharedRide(RideRequest ride) async {
+    const attempts = 2;
+    Object? lastError;
+
+    for (var attempt = 0; attempt < attempts; attempt++) {
+      try {
+        await RideService.publishRide(
+          ride,
+        ).timeout(const Duration(seconds: 5));
+        return;
+      } catch (error) {
+        lastError = error;
+        if (attempt < attempts - 1) {
+          await Future<void>.delayed(const Duration(milliseconds: 700));
+        }
+      }
+    }
+
+    throw lastError ?? Exception('Could not publish ride');
   }
 
   void _focusRouteOrPickup() {
@@ -274,10 +425,12 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
         return;
       }
 
-      final dropoffLatLng = LatLng(dropoff.latitude, dropoff.longitude);
+      final boundsPoints = _previewRoutePoints.length > 1
+          ? _previewRoutePoints
+          : [pickupLatLng, LatLng(dropoff.latitude, dropoff.longitude)];
       _mapController.fitCamera(
         CameraFit.bounds(
-          bounds: LatLngBounds.fromPoints([pickupLatLng, dropoffLatLng]),
+          bounds: LatLngBounds.fromPoints(boundsPoints),
           padding: const EdgeInsets.fromLTRB(48, 48, 48, 48),
         ),
       );
@@ -302,6 +455,38 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
       );
       _dropoffSearchController.text = address;
       _searchResults = [];
+    });
+    _focusRouteOrPickup();
+    unawaited(_refreshPreviewRoute());
+  }
+
+  Future<void> _refreshPreviewRoute() async {
+    final pickup = _pickup;
+    final dropoff = _dropoff;
+    final requestId = ++_previewRouteRequestId;
+
+    if (pickup == null || dropoff == null) {
+      if (!mounted) return;
+      setState(() {
+        _previewRoutePoints = const [];
+        _isLoadingPreviewRoute = false;
+      });
+      return;
+    }
+
+    setState(() => _isLoadingPreviewRoute = true);
+
+    final route = await TripRouteBuilder.buildRoadFirstRoute(
+      LatLng(pickup.latitude, pickup.longitude),
+      LatLng(dropoff.latitude, dropoff.longitude),
+      minPoints: 80,
+    );
+
+    if (!mounted || requestId != _previewRouteRequestId) return;
+
+    setState(() {
+      _previewRoutePoints = route;
+      _isLoadingPreviewRoute = false;
     });
     _focusRouteOrPickup();
   }
@@ -351,10 +536,12 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
                 PolylineLayer(
                   polylines: [
                     Polyline(
-                      points: [
-                        LatLng(pickup.latitude, pickup.longitude),
-                        LatLng(dropoff.latitude, dropoff.longitude),
-                      ],
+                      points: _previewRoutePoints.length > 1
+                          ? _previewRoutePoints
+                          : [
+                              LatLng(pickup.latitude, pickup.longitude),
+                              LatLng(dropoff.latitude, dropoff.longitude),
+                            ],
                       color: isNight
                           ? AppColors.nightAccent
                           : AppColors.primary,
@@ -423,6 +610,39 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
               ),
             ),
           ),
+          if (_isLoadingPreviewRoute)
+            Positioned(
+              bottom: 10,
+              left: 10,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.94),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      'Loading road route...',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           Positioned(
             top: 10,
             right: 10,
@@ -478,6 +698,16 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
             ).animate().fadeIn(delay: 150.ms),
             const SizedBox(height: 8),
             _buildPickupSearchField().animate().fadeIn(delay: 200.ms),
+
+            const SizedBox(height: 16),
+
+            // ── Pickup (manual input option) ──
+            Text(
+              'Pickup Location',
+              style: Theme.of(context).textTheme.titleMedium,
+            ).animate().fadeIn(delay: 180.ms),
+            const SizedBox(height: 8),
+            _buildPickupSearchField().animate().fadeIn(delay: 220.ms),
 
             const SizedBox(height: 16),
 
@@ -649,7 +879,10 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
     );
   }
 
+<<<<<<< HEAD
   /// Search-based pickup field with autocomplete + "Use Current Location" button.
+=======
+>>>>>>> 80114ce (Polish trip routing and demo verification)
   Widget _buildPickupSearchField() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -658,10 +891,16 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
           controller: _pickupSearchController,
           onChanged: _onPickupSearchChanged,
           decoration: InputDecoration(
+<<<<<<< HEAD
             hintText: 'Search pickup location...',
             prefixIcon:
                 const Icon(Icons.my_location_rounded, color: AppColors.info),
             suffixIcon: _isPickupSearching
+=======
+            hintText: 'Search pickup place (instead of current location)...',
+            prefixIcon: const Icon(Icons.my_location, color: AppColors.info),
+            suffixIcon: _isSearchingPickup
+>>>>>>> 80114ce (Polish trip routing and demo verification)
                 ? const Padding(
                     padding: EdgeInsets.all(12),
                     child: SizedBox(
@@ -671,6 +910,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
                     ),
                   )
                 : _pickupSearchController.text.isNotEmpty
+<<<<<<< HEAD
                     ? IconButton(
                         icon: const Icon(Icons.clear),
                         onPressed: () {
@@ -685,6 +925,19 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
             ),
+=======
+                ? IconButton(
+                    icon: const Icon(Icons.clear),
+                    onPressed: () {
+                      _pickupSearchController.clear();
+                      setState(() {
+                        _pickupSearchResults = [];
+                      });
+                    },
+                  )
+                : null,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+>>>>>>> 80114ce (Polish trip routing and demo verification)
           ),
         ),
         if (_pickupSearchResults.isNotEmpty)
@@ -707,8 +960,12 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
               shrinkWrap: true,
               padding: EdgeInsets.zero,
               itemCount: _pickupSearchResults.length,
+<<<<<<< HEAD
               separatorBuilder: (_, __) =>
                   const Divider(height: 1, indent: 48),
+=======
+              separatorBuilder: (_, _) => const Divider(height: 1, indent: 48),
+>>>>>>> 80114ce (Polish trip routing and demo verification)
               itemBuilder: (context, index) {
                 final loc = _pickupSearchResults[index];
                 return ListTile(
@@ -730,6 +987,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
               },
             ),
           ),
+<<<<<<< HEAD
         const SizedBox(height: 8),
         // "Use Current Location" shortcut button
         OutlinedButton.icon(
@@ -772,6 +1030,8 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
               ),
             ),
           ),
+=======
+>>>>>>> 80114ce (Polish trip routing and demo verification)
       ],
     );
   }
@@ -786,8 +1046,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
           onChanged: _onDropoffSearchChanged,
           decoration: InputDecoration(
             hintText: 'Search for a place...',
-            prefixIcon:
-                const Icon(Icons.location_on, color: AppColors.danger),
+            prefixIcon: const Icon(Icons.location_on, color: AppColors.danger),
             suffixIcon: _isSearching
                 ? const Padding(
                     padding: EdgeInsets.all(12),
@@ -798,20 +1057,18 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
                     ),
                   )
                 : _dropoffSearchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () {
-                          _dropoffSearchController.clear();
-                          setState(() {
-                            _dropoff = null;
-                            _searchResults = [];
-                          });
-                        },
-                      )
-                    : null,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+                ? IconButton(
+                    icon: const Icon(Icons.clear),
+                    onPressed: () {
+                      _dropoffSearchController.clear();
+                      setState(() {
+                        _dropoff = null;
+                        _searchResults = [];
+                      });
+                    },
+                  )
+                : null,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
         ),
         if (_searchResults.isNotEmpty)
@@ -834,7 +1091,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
               shrinkWrap: true,
               padding: EdgeInsets.zero,
               itemCount: _searchResults.length,
-              separatorBuilder: (_, __) =>
+              separatorBuilder: (context, index) =>
                   const Divider(height: 1, indent: 48),
               itemBuilder: (context, index) {
                 final loc = _searchResults[index];

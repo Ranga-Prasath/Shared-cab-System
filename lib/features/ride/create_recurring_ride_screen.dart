@@ -552,14 +552,9 @@ class _CreateRecurringRideScreenState
                     ),
                   )
                 : controller.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: onClear,
-                      )
-                    : null,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+                ? IconButton(icon: const Icon(Icons.clear), onPressed: onClear)
+                : null,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
         ),
         if (results.isNotEmpty)
@@ -582,7 +577,7 @@ class _CreateRecurringRideScreenState
               shrinkWrap: true,
               padding: EdgeInsets.zero,
               itemCount: results.length,
-              separatorBuilder: (_, __) =>
+              separatorBuilder: (context, index) =>
                   const Divider(height: 1, indent: 48),
               itemBuilder: (context, index) {
                 final loc = results[index];

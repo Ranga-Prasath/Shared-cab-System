@@ -4,9 +4,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
-import 'package:shared_cab/providers/app_providers.dart';
-import 'package:shared_cab/models/ride_preferences_model.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:shared_cab/providers/app_providers.dart';
 
 class RidePreferencesScreen extends ConsumerWidget {
   const RidePreferencesScreen({super.key});
@@ -53,11 +52,7 @@ class RidePreferencesScreen extends ConsumerWidget {
               ),
               child: Column(
                 children: [
-                  const Icon(
-                    Icons.tune_rounded,
-                    color: Colors.white,
-                    size: 48,
-                  ),
+                  const Icon(Icons.tune_rounded, color: Colors.white, size: 48),
                   const SizedBox(height: 12),
                   const Text(
                     'Customize Your Ride',
@@ -78,10 +73,7 @@ class RidePreferencesScreen extends ConsumerWidget {
                   ),
                 ],
               ),
-            )
-                .animate()
-                .fadeIn(duration: 500.ms)
-                .slideY(begin: 0.15, end: 0),
+            ).animate().fadeIn(duration: 500.ms).slideY(begin: 0.15, end: 0),
 
             const SizedBox(height: 28),
 
@@ -89,9 +81,9 @@ class RidePreferencesScreen extends ConsumerWidget {
             if (prefs.activeTags.isNotEmpty) ...[
               Text(
                 'Your Active Preferences',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 10),
               Wrap(
@@ -129,9 +121,9 @@ class RidePreferencesScreen extends ConsumerWidget {
             // Preference toggles
             Text(
               'Comfort',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
             _PreferenceTile(
@@ -141,8 +133,8 @@ class RidePreferencesScreen extends ConsumerWidget {
               value: prefs.acPreferred,
               color: AppColors.info,
               onChanged: (val) {
-                ref.read(ridePreferencesProvider.notifier).state =
-                    prefs.copyWith(acPreferred: val);
+                ref.read(ridePreferencesProvider.notifier).state = prefs
+                    .copyWith(acPreferred: val);
               },
             ).animate().fadeIn(delay: 100.ms).slideX(begin: -0.05, end: 0),
             _PreferenceTile(
@@ -152,8 +144,8 @@ class RidePreferencesScreen extends ConsumerWidget {
               value: prefs.musicAllowed,
               color: AppColors.accent,
               onChanged: (val) {
-                ref.read(ridePreferencesProvider.notifier).state =
-                    prefs.copyWith(musicAllowed: val);
+                ref.read(ridePreferencesProvider.notifier).state = prefs
+                    .copyWith(musicAllowed: val);
               },
             ).animate().fadeIn(delay: 150.ms).slideX(begin: -0.05, end: 0),
             _PreferenceTile(
@@ -163,8 +155,8 @@ class RidePreferencesScreen extends ConsumerWidget {
               value: prefs.silentRide,
               color: AppColors.textSecondary,
               onChanged: (val) {
-                ref.read(ridePreferencesProvider.notifier).state =
-                    prefs.copyWith(silentRide: val);
+                ref.read(ridePreferencesProvider.notifier).state = prefs
+                    .copyWith(silentRide: val);
               },
             ).animate().fadeIn(delay: 200.ms).slideX(begin: -0.05, end: 0),
 
@@ -172,9 +164,9 @@ class RidePreferencesScreen extends ConsumerWidget {
 
             Text(
               'Special Needs',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
             _PreferenceTile(
@@ -184,8 +176,8 @@ class RidePreferencesScreen extends ConsumerWidget {
               value: prefs.petFriendly,
               color: AppColors.warning,
               onChanged: (val) {
-                ref.read(ridePreferencesProvider.notifier).state =
-                    prefs.copyWith(petFriendly: val);
+                ref.read(ridePreferencesProvider.notifier).state = prefs
+                    .copyWith(petFriendly: val);
               },
             ).animate().fadeIn(delay: 250.ms).slideX(begin: -0.05, end: 0),
             _PreferenceTile(
@@ -195,8 +187,8 @@ class RidePreferencesScreen extends ConsumerWidget {
               value: prefs.extraLuggage,
               color: AppColors.primary,
               onChanged: (val) {
-                ref.read(ridePreferencesProvider.notifier).state =
-                    prefs.copyWith(extraLuggage: val);
+                ref.read(ridePreferencesProvider.notifier).state = prefs
+                    .copyWith(extraLuggage: val);
               },
             ).animate().fadeIn(delay: 300.ms).slideX(begin: -0.05, end: 0),
             _PreferenceTile(
@@ -206,8 +198,8 @@ class RidePreferencesScreen extends ConsumerWidget {
               value: prefs.windowSeat,
               color: AppColors.success,
               onChanged: (val) {
-                ref.read(ridePreferencesProvider.notifier).state =
-                    prefs.copyWith(windowSeat: val);
+                ref.read(ridePreferencesProvider.notifier).state = prefs
+                    .copyWith(windowSeat: val);
               },
             ).animate().fadeIn(delay: 350.ms).slideX(begin: -0.05, end: 0),
 
@@ -237,9 +229,7 @@ class RidePreferencesScreen extends ConsumerWidget {
                       children: [
                         Text(
                           'Auto-saved',
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleSmall
+                          style: Theme.of(context).textTheme.titleSmall
                               ?.copyWith(
                                 fontWeight: FontWeight.w700,
                                 color: AppColors.success,
@@ -248,9 +238,7 @@ class RidePreferencesScreen extends ConsumerWidget {
                         const SizedBox(height: 2),
                         Text(
                           'Your preferences are applied to all future rides automatically.',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
+                          style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(color: AppColors.textSecondary),
                         ),
                       ],
@@ -297,10 +285,7 @@ class _PreferenceTile extends StatelessWidget {
       ),
       elevation: value ? 2 : 0.5,
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 4,
-        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         leading: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
@@ -309,20 +294,17 @@ class _PreferenceTile extends StatelessWidget {
           ),
           child: Icon(icon, color: color, size: 22),
         ),
-        title: Text(
-          label,
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
+        title: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
         subtitle: Text(
           subtitle,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: AppColors.textSecondary,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
         ),
         trailing: Switch(
           value: value,
           onChanged: onChanged,
-          activeColor: color,
+          activeThumbColor: color,
         ),
       ),
     );

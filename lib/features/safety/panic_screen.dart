@@ -8,6 +8,7 @@ import 'package:shared_cab/core/theme/app_colors.dart';
 import 'package:shared_cab/providers/app_providers.dart';
 import 'package:shared_cab/data/mock/mock_data.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class PanicScreen extends ConsumerStatefulWidget {
   const PanicScreen({super.key});
@@ -18,6 +19,18 @@ class PanicScreen extends ConsumerStatefulWidget {
 
 class _PanicScreenState extends ConsumerState<PanicScreen> {
   bool _alertSent = false;
+
+  Future<void> _launchPhone(String number) async {
+    final uri = Uri(scheme: 'tel', path: number);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+      return;
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Unable to open dialer for $number')),
+    );
+  }
 
   void _triggerAlert() {
     setState(() => _alertSent = true);
@@ -113,19 +126,19 @@ class _PanicScreenState extends ConsumerState<PanicScreen> {
                     _EmergencyDialButton(
                       icon: Icons.local_police_outlined,
                       label: '100',
-                      onTap: () {},
+                      onTap: () => _launchPhone('100'),
                     ),
                     const SizedBox(width: 24),
                     _EmergencyDialButton(
                       icon: Icons.local_hospital_outlined,
                       label: '108',
-                      onTap: () {},
+                      onTap: () => _launchPhone('108'),
                     ),
                     const SizedBox(width: 24),
                     _EmergencyDialButton(
                       icon: Icons.emergency_outlined,
                       label: '112',
-                      onTap: () {},
+                      onTap: () => _launchPhone('112'),
                     ),
                   ],
                 ).animate().fadeIn(delay: 400.ms),

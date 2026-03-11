@@ -46,8 +46,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       );
       if (!mounted) return;
 
-      ref.read(isLoggedInProvider.notifier).state = true;
-      ref.read(currentUserProvider.notifier).state = user;
+      ref.read(currentUserOverrideProvider.notifier).state = user;
       context.goNamed('home');
     } catch (e) {
       if (!mounted) return;
@@ -59,12 +58,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   String _friendlyError(String error) {
-    if (error.contains('user-not-found')) return 'No account found with this email.';
-    if (error.contains('wrong-password') || error.contains('invalid-credential')) {
+    if (error.contains('user-not-found')) {
+      return 'No account found with this email.';
+    }
+    if (error.contains('wrong-password') ||
+        error.contains('invalid-credential')) {
       return 'Incorrect password. Please try again.';
     }
-    if (error.contains('invalid-email')) return 'Please enter a valid email address.';
-    if (error.contains('too-many-requests')) return 'Too many attempts. Try again later.';
+    if (error.contains('invalid-email')) {
+      return 'Please enter a valid email address.';
+    }
+    if (error.contains('too-many-requests')) {
+      return 'Too many attempts. Try again later.';
+    }
     return 'Login failed. Please try again.';
   }
 
@@ -125,7 +131,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     )
                     .animate()
                     .fadeIn(delay: 200.ms, duration: 500.ms)
-                    .slideY(begin: 0.3, end: 0, duration: 500.ms, delay: 200.ms),
+                    .slideY(
+                      begin: 0.3,
+                      end: 0,
+                      duration: 500.ms,
+                      delay: 200.ms,
+                    ),
 
                 const SizedBox(height: 8),
 
@@ -141,7 +152,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
                 // Savings badge
                 Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
                           colors: [
@@ -155,14 +169,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         mainAxisSize: MainAxisSize.min,
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.savings_outlined, color: Colors.white, size: 20),
+                          const Icon(
+                            Icons.savings_outlined,
+                            color: Colors.white,
+                            size: 20,
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             'Save up to 60-70% on every ride',
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                            ),
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                ),
                           ),
                         ],
                       ),
@@ -242,7 +261,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.error_outline, color: AppColors.danger, size: 18),
+                        const Icon(
+                          Icons.error_outline,
+                          color: AppColors.danger,
+                          size: 18,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -341,10 +364,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               Expanded(
                 child: Text(
                   'Night Mode Active - Extra safety features enabled',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(color: AppColors.nightMoon),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: AppColors.nightMoon),
                 ),
               ),
             ],
