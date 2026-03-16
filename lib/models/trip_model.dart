@@ -40,6 +40,16 @@ class Trip {
     this.farePerPerson,
   }) : safeArrivalPin = safeArrivalPin ?? generateTripPin();
 
+  int get participantCount => riderIds.toSet().length;
+
+  int get coRiderCount => participantCount > 0 ? participantCount - 1 : 0;
+
+  double? get estimatedSavingsPerPerson {
+    final fare = farePerPerson;
+    if (fare == null || participantCount <= 1) return 0;
+    return fare * (participantCount - 1);
+  }
+
   Trip copyWith({
     TripStatus? status,
     DateTime? endTime,

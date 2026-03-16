@@ -11,10 +11,10 @@ import 'package:shared_cab/data/mock/mock_data.dart';
 import 'package:shared_cab/models/recurring_ride_model.dart';
 import 'package:shared_cab/models/ride_preferences_model.dart';
 import 'package:shared_cab/models/ride_request_model.dart';
+import 'package:shared_cab/models/ride_session_model.dart';
 import 'package:shared_cab/models/route_deviation_model.dart';
 import 'package:shared_cab/models/trip_model.dart';
 import 'package:shared_cab/models/user_model.dart';
-import 'package:shared_cab/models/location_model.dart';
 
 // Auth State
 final currentUserOverrideProvider = StateProvider<User?>((ref) => null);
@@ -94,18 +94,10 @@ final currentRideRequestProvider = StateProvider<RideRequest?>((ref) => null);
 // Trip
 final activeTripProvider = StateProvider<Trip?>((ref) => null);
 final rideHistoryProvider = StateProvider<List<Trip>>((ref) => []);
-
-void archiveTripToHistory(WidgetRef ref, Trip trip) {
-  final history = ref.read(rideHistoryProvider);
-  if (history.any((item) => item.id == trip.id)) return;
-
-  final archivedTrip = trip.copyWith(
-    status: TripStatus.completed,
-    endTime: trip.endTime ?? DateTime.now(),
-  );
-
-  ref.read(rideHistoryProvider.notifier).state = [archivedTrip, ...history];
-}
+final activeRideSessionProvider = StateProvider<RideSession?>((ref) => null);
+final rideSessionHistoryProvider = StateProvider<List<RideSession>>(
+  (ref) => [],
+);
 
 // Safety
 final sameGenderOnlyProvider = StateProvider<bool>((ref) => true);
@@ -120,6 +112,7 @@ final deviationAlertDismissedProvider = StateProvider<bool>((ref) => false);
 
 // Recurring Rides
 final recurringRidesProvider = StateProvider<List<RecurringRide>>((ref) => []);
+final recurringRidesSeededProvider = StateProvider<bool>((ref) => false);
 
 // Ride Preferences
 final ridePreferencesProvider = StateProvider<RidePreferences>(

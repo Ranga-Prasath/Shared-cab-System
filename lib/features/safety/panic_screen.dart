@@ -4,14 +4,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_cab/core/session/ride_session_controller.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
-import 'package:shared_cab/providers/app_providers.dart';
-import 'package:shared_cab/data/mock/mock_data.dart';
+import 'package:shared_cab/models/user_model.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:shared_cab/providers/app_providers.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class PanicScreen extends ConsumerStatefulWidget {
   const PanicScreen({super.key});
+
+  static const String demoDisclaimerText =
+      'This demo does not auto-message contacts. Use the emergency call shortcuts below.';
+
+  static String activeModeSummary(List<EmergencyContact> contacts) {
+    if (contacts.isEmpty) {
+      return 'Emergency mode is active for this trip.';
+    }
+    return 'Emergency mode is active.\nSaved contacts: ${contacts.map((c) => c.name).join(', ')}';
+  }
 
   @override
   ConsumerState<PanicScreen> createState() => _PanicScreenState();
@@ -34,154 +45,155 @@ class _PanicScreenState extends ConsumerState<PanicScreen> {
 
   void _triggerAlert() {
     setState(() => _alertSent = true);
-    ref.read(panicModeProvider.notifier).state = true;
-
-    final trip = ref.read(activeTripProvider);
-    if (trip != null) {
-      ref.read(activeTripProvider.notifier).state = trip.copyWith(
-        panicTriggered: true,
-      );
-    }
+    RideSessionController.triggerPanic(RideSessionStore.widget(ref));
   }
 
   @override
   Widget build(BuildContext context) {
+    final currentUser = ref.watch(effectiveCurrentUserProvider);
+    final contacts = currentUser.emergencyContacts;
+
     return Scaffold(
       backgroundColor: AppColors.nightPrimary,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (!_alertSent) ...[
-                const Icon(
-                      Icons.warning_amber_rounded,
-                      size: 80,
-                      color: AppColors.danger,
-                    )
-                    .animate(onPlay: (c) => c.repeat(reverse: true))
-                    .scale(
-                      begin: const Offset(1, 1),
-                      end: const Offset(1.2, 1.2),
-                      duration: 800.ms,
-                    ),
-                const SizedBox(height: 24),
-                const Text(
-                  'EMERGENCY',
-                  style: TextStyle(
-                    color: AppColors.danger,
-                    fontSize: 32,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 4,
-                  ),
-                ).animate().fadeIn(),
-                const SizedBox(height: 12),
-                const Text(
-                  'Tap the button below to send an\nemergency alert to your contacts',
-                  style: TextStyle(color: Colors.white70, fontSize: 16),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 40),
-                GestureDetector(
-                      onTap: _triggerAlert,
-                      child: Container(
-                        width: 160,
-                        height: 160,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (!_alertSent) ...[
+                    const Icon(
+                          Icons.warning_amber_rounded,
+                          size: 80,
                           color: AppColors.danger,
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.danger.withValues(alpha: 0.5),
-                              blurRadius: 30,
-                              spreadRadius: 5,
-                            ),
-                          ],
+                        )
+                        .animate()
+                        .scale(
+                          begin: const Offset(1, 1),
+                          end: const Offset(1.2, 1.2),
+                          duration: 800.ms,
                         ),
-                        child: const Center(
-                          child: Text(
-                            'SOS',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 36,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 4,
+                    const SizedBox(height: 24),
+                    const Text(
+                      'EMERGENCY',
+                      style: TextStyle(
+                        color: AppColors.danger,
+                        fontSize: 32,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 4,
+                      ),
+                    ).animate().fadeIn(),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Tap the button below to enable emergency mode\nand open quick-call actions',
+                      style: TextStyle(color: Colors.white70, fontSize: 16),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 40),
+                    GestureDetector(
+                          onTap: _triggerAlert,
+                          child: Container(
+                            width: 160,
+                            height: 160,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: AppColors.danger,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.danger.withValues(alpha: 0.5),
+                                  blurRadius: 30,
+                                  spreadRadius: 5,
+                                ),
+                              ],
+                            ),
+                            child: const Center(
+                              child: Text(
+                                'SOS',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 36,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 4,
+                                ),
+                              ),
                             ),
                           ),
+                        )
+                        .animate()
+                        .scale(
+                          begin: const Offset(0.95, 0.95),
+                          end: const Offset(1.05, 1.05),
+                          duration: 1200.ms,
                         ),
+                  ] else ...[
+                    const Icon(
+                      Icons.check_circle_rounded,
+                      size: 80,
+                      color: AppColors.success,
+                    ).animate().scale(
+                      begin: const Offset(0, 0),
+                      end: const Offset(1, 1),
+                      curve: Curves.elasticOut,
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'EMERGENCY MODE ON',
+                      style: TextStyle(
+                        color: AppColors.success,
+                        fontSize: 28,
+                        fontWeight: FontWeight.w900,
                       ),
-                    )
-                    .animate(onPlay: (c) => c.repeat(reverse: true))
-                    .scale(
-                      begin: const Offset(0.95, 0.95),
-                      end: const Offset(1.05, 1.05),
-                      duration: 1200.ms,
-                    ),
-                const SizedBox(height: 40),
-                // Quick dial
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _EmergencyDialButton(
-                      icon: Icons.local_police_outlined,
-                      label: '100',
-                      onTap: () => _launchPhone('100'),
-                    ),
-                    const SizedBox(width: 24),
-                    _EmergencyDialButton(
-                      icon: Icons.local_hospital_outlined,
-                      label: '108',
-                      onTap: () => _launchPhone('108'),
-                    ),
-                    const SizedBox(width: 24),
-                    _EmergencyDialButton(
-                      icon: Icons.emergency_outlined,
-                      label: '112',
-                      onTap: () => _launchPhone('112'),
-                    ),
+                    ).animate().fadeIn(delay: 300.ms),
+                    const SizedBox(height: 12),
+                    Text(
+                      PanicScreen.activeModeSummary(contacts),
+                      style: const TextStyle(color: Colors.white70, fontSize: 16),
+                      textAlign: TextAlign.center,
+                    ).animate().fadeIn(delay: 500.ms),
+                    const SizedBox(height: 8),
+                    const Text(
+                      PanicScreen.demoDisclaimerText,
+                      style: TextStyle(color: AppColors.nightMoon, fontSize: 14),
+                      textAlign: TextAlign.center,
+                    ).animate().fadeIn(delay: 700.ms),
                   ],
-                ).animate().fadeIn(delay: 400.ms),
-              ] else ...[
-                const Icon(
-                  Icons.check_circle_rounded,
-                  size: 80,
-                  color: AppColors.success,
-                ).animate().scale(
-                  begin: const Offset(0, 0),
-                  end: const Offset(1, 1),
-                  curve: Curves.elasticOut,
-                ),
-                const SizedBox(height: 24),
-                const Text(
-                  'ALERT SENT',
-                  style: TextStyle(
-                    color: AppColors.success,
-                    fontSize: 28,
-                    fontWeight: FontWeight.w900,
+                  const SizedBox(height: 40),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _EmergencyDialButton(
+                        icon: Icons.local_police_outlined,
+                        label: '100',
+                        onTap: () => _launchPhone('100'),
+                      ),
+                      const SizedBox(width: 24),
+                      _EmergencyDialButton(
+                        icon: Icons.local_hospital_outlined,
+                        label: '108',
+                        onTap: () => _launchPhone('108'),
+                      ),
+                      const SizedBox(width: 24),
+                      _EmergencyDialButton(
+                        icon: Icons.emergency_outlined,
+                        label: '112',
+                        onTap: () => _launchPhone('112'),
+                      ),
+                    ],
+                  ).animate().fadeIn(delay: 400.ms),
+                  const SizedBox(height: 24),
+                  TextButton(
+                    onPressed: () => context.pop(),
+                    child: const Text(
+                      'Back to Trip',
+                      style: TextStyle(color: Colors.white54),
+                    ),
                   ),
-                ).animate().fadeIn(delay: 300.ms),
-                const SizedBox(height: 12),
-                Text(
-                  'Emergency contacts notified:\n${MockData.demoUser.emergencyContacts.map((c) => c.name).join(', ')}',
-                  style: const TextStyle(color: Colors.white70, fontSize: 16),
-                  textAlign: TextAlign.center,
-                ).animate().fadeIn(delay: 500.ms),
-                const SizedBox(height: 8),
-                const Text(
-                  'Your live location is being shared',
-                  style: TextStyle(color: AppColors.nightMoon, fontSize: 14),
-                ).animate().fadeIn(delay: 700.ms),
-              ],
-              const Spacer(),
-              TextButton(
-                onPressed: () => context.pop(),
-                child: const Text(
-                  'Back to Trip',
-                  style: TextStyle(color: Colors.white54),
-                ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),

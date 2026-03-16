@@ -5,9 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_cab/core/session/ride_session_controller.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
 import 'package:shared_cab/providers/app_providers.dart';
-import 'package:shared_cab/models/trip_model.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 class SafeArrivalScreen extends ConsumerStatefulWidget {
@@ -20,7 +20,6 @@ class SafeArrivalScreen extends ConsumerStatefulWidget {
 }
 
 class _SafeArrivalScreenState extends ConsumerState<SafeArrivalScreen> {
-  static const _demoSafeArrivalPin = '4829';
   final _pinController = TextEditingController();
   String? _error;
   bool _verified = false;
@@ -34,20 +33,17 @@ class _SafeArrivalScreenState extends ConsumerState<SafeArrivalScreen> {
   void _verifyPin() {
     final trip = ref.read(activeTripProvider);
     if (trip == null) return;
+    final submittedPin = _pinController.text.trim();
+    final verified = RideSessionController.confirmSafeArrival(
+      RideSessionStore.widget(ref),
+      submittedPin: submittedPin,
+    );
 
-    if (_pinController.text == _demoSafeArrivalPin) {
+    if (verified) {
       setState(() {
         _verified = true;
         _error = null;
       });
-
-      final completedTrip = trip.copyWith(
-        isPinConfirmed: true,
-        status: TripStatus.completed,
-        endTime: DateTime.now(),
-      );
-      ref.read(activeTripProvider.notifier).state = completedTrip;
-      archiveTripToHistory(ref, completedTrip);
 
       Future.delayed(const Duration(seconds: 2), () {
         if (!mounted) return;
@@ -99,7 +95,7 @@ class _SafeArrivalScreenState extends ConsumerState<SafeArrivalScreen> {
               const SizedBox(height: 8),
               Text(
                 _verified
-                    ? 'Your emergency contacts have been notified'
+                    ? 'Safe arrival was recorded for this trip.'
                     : 'Enter the 4-digit PIN shared with you',
                 style: const TextStyle(color: Colors.white60, fontSize: 14),
                 textAlign: TextAlign.center,

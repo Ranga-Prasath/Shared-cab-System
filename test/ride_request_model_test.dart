@@ -2,11 +2,13 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_cab/models/location_model.dart';
+import 'package:shared_cab/models/ride_preferences_model.dart';
 import 'package:shared_cab/models/ride_request_model.dart';
 
 void main() {
   group('RideRequest serialization', () {
     test('round-trips accepted pickup stops and ride flags', () {
+      final requestCreatedAt = DateTime.fromMillisecondsSinceEpoch(1500);
       final ride = RideRequest(
         id: 'ride-1',
         userId: 'host-1',
@@ -26,6 +28,28 @@ void main() {
         coRiderIds: const ['rider-2', 'rider-3'],
         waitForAnotherRider: true,
         readyToProceed: false,
+        safeArrivalPin: '4829',
+        joinRequests: [
+          RideJoinRequest(
+            requesterId: 'rider-4',
+            requesterName: 'Rider Four',
+            requesterGender: 'female',
+            requesterPickup: 'Stop 4',
+            requesterDropoff: 'Drop 4',
+            requesterPickupLat: 13.040,
+            requesterPickupLng: 80.040,
+            status: RideJoinRequestStatus.declined,
+            requestedAt: requestCreatedAt,
+            updatedAt: requestCreatedAt.add(const Duration(minutes: 1)),
+            resolvedAt: requestCreatedAt.add(const Duration(minutes: 1)),
+            statusReason: 'Host declined the ride request.',
+          ),
+        ],
+        preferenceSnapshot: const RidePreferences(
+          silentRide: true,
+          extraLuggage: true,
+          musicAllowed: false,
+        ),
         acceptedPickupStops: const [
           RidePickupStop(
             riderId: 'rider-2',
@@ -53,6 +77,14 @@ void main() {
 
       expect(restored.waitForAnotherRider, isTrue);
       expect(restored.readyToProceed, isFalse);
+      expect(restored.safeArrivalPin, '4829');
+      expect(restored.joinRequests, hasLength(1));
+      expect(restored.joinRequests.single.requesterId, 'rider-4');
+      expect(restored.joinRequests.single.status, RideJoinRequestStatus.declined);
+      expect(restored.joinRequests.single.statusReason, isNotEmpty);
+      expect(restored.preferenceSnapshot.silentRide, isTrue);
+      expect(restored.preferenceSnapshot.extraLuggage, isTrue);
+      expect(restored.preferenceSnapshot.musicAllowed, isFalse);
       expect(restored.coRiderIds, const ['rider-2', 'rider-3']);
       expect(restored.acceptedPickupStops.length, 2);
       expect(restored.acceptedPickupStops[0].riderId, 'rider-2');

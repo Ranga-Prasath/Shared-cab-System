@@ -134,7 +134,7 @@ class _HistoryCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 _InfoChip(
                   icon: Icons.people_outline_rounded,
-                  label: '${trip.riderIds.length}',
+                  label: '${trip.participantCount}',
                   color: AppColors.primary,
                 ),
               ],

@@ -4,7 +4,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_cab/core/services/auth_service.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
+import 'package:shared_cab/core/utils/ride_formatters.dart';
 import 'package:shared_cab/data/mock/mock_data.dart';
 import 'package:shared_cab/providers/app_providers.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -109,13 +111,27 @@ class _EmergencyContactsScreenState
     final updatedUser = baseUser.copyWith(
       emergencyContacts: [...baseUser.emergencyContacts, newContact],
     );
-    ref.read(currentUserOverrideProvider.notifier).state = updatedUser;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${newContact.name} added as an emergency contact'),
-      ),
-    );
+    try {
+      final savedUser = await AuthService.saveUserProfile(updatedUser);
+      ref.read(currentUserOverrideProvider.notifier).state = savedUser;
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${newContact.name} added as an emergency contact'),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Unable to save this contact right now. Please try again.',
+          ),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+    }
   }
 
   @override
@@ -152,7 +168,7 @@ class _EmergencyContactsScreenState
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      'These contacts will be notified in emergencies and during Night Mode trips.',
+                      'These contacts are shown during emergency flows. This demo does not automatically message them.',
                       style: Theme.of(
                         context,
                       ).textTheme.bodySmall?.copyWith(color: AppColors.warning),
@@ -190,7 +206,7 @@ class _EmergencyContactsScreenState
                                       ? AppColors.nightAccent
                                       : AppColors.primary,
                                   child: Text(
-                                    contact.name[0],
+                                    RideFormatters.safeInitial(contact.name),
                                     style: const TextStyle(
                                       color: Colors.white,
                                       fontWeight: FontWeight.w600,

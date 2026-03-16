@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_cab/core/utils/ride_trip_utils.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
 import 'package:shared_cab/providers/app_providers.dart';
 import 'package:shared_cab/models/recurring_ride_model.dart';
@@ -25,9 +26,16 @@ class _RecurringRidesScreenState extends ConsumerState<RecurringRidesScreen> {
     // Load mock data if empty
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final rides = ref.read(recurringRidesProvider);
-      if (rides.isEmpty) {
+      final hasSeededDemoData = ref.read(recurringRidesSeededProvider);
+      if (
+        RideTripUtils.shouldSeedDemoRecurringRides(
+          hasAnyRides: rides.isNotEmpty,
+          hasSeededDemoData: hasSeededDemoData,
+        )
+      ) {
         ref.read(recurringRidesProvider.notifier).state =
             MockData.mockRecurringRides;
+        ref.read(recurringRidesSeededProvider.notifier).state = true;
       }
     });
   }

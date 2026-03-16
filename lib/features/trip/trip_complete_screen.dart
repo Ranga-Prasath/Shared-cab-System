@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_cab/core/session/ride_session_controller.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
 import 'package:shared_cab/providers/app_providers.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -85,14 +86,15 @@ class TripCompleteScreen extends ConsumerWidget {
                       _SummaryRow(
                         icon: Icons.savings_rounded,
                         label: 'You saved',
-                        value: 'INR 240',
+                        value:
+                            'INR ${trip?.estimatedSavingsPerPerson?.toStringAsFixed(0) ?? '0'}',
                         valueColor: AppColors.success,
                       ),
                       const Divider(height: 20),
                       _SummaryRow(
                         icon: Icons.people_outline_rounded,
                         label: 'Co-riders',
-                        value: '${(trip?.riderIds.length ?? 3) - 1}',
+                        value: '${trip?.coRiderCount ?? 0}',
                       ),
                     ],
                   ),
@@ -103,9 +105,9 @@ class TripCompleteScreen extends ConsumerWidget {
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   onPressed: () {
-                    if (trip != null) {
-                      archiveTripToHistory(ref, trip);
-                    }
+                    RideSessionController.archiveActiveSession(
+                      RideSessionStore.widget(ref),
+                    );
                     context.goNamed(
                       'rating',
                       pathParameters: {'tripId': tripId},
@@ -118,11 +120,13 @@ class TripCompleteScreen extends ConsumerWidget {
               const SizedBox(height: 12),
               TextButton(
                 onPressed: () {
-                  if (trip != null) {
-                    archiveTripToHistory(ref, trip);
-                  }
-                  ref.read(activeTripProvider.notifier).state = null;
-                  ref.read(panicModeProvider.notifier).state = false;
+                  RideSessionController.archiveActiveSession(
+                    RideSessionStore.widget(ref),
+                  );
+                  RideSessionController.closeActiveSession(
+                    RideSessionStore.widget(ref),
+                    clearRideContext: true,
+                  );
                   context.goNamed('home');
                 },
                 child: const Text('Skip & Go Home'),

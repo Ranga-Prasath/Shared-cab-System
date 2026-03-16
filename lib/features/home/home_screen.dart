@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_cab/core/utils/ride_formatters.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
 import 'package:shared_cab/providers/app_providers.dart';
 import 'package:shared_cab/models/user_model.dart';
@@ -65,7 +66,7 @@ class HomeScreen extends ConsumerWidget {
           radius: 24,
           backgroundColor: isNight ? AppColors.nightAccent : AppColors.primary,
           child: Text(
-            user.name[0],
+            RideFormatters.safeInitial(user.name),
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -79,7 +80,7 @@ class HomeScreen extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Hey, ${user.name.split(' ')[0]}!',
+                'Hey, ${RideFormatters.firstName(user.name)}!',
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               Text(

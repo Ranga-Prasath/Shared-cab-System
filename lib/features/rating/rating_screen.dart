@@ -4,8 +4,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_cab/core/session/ride_session_controller.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
-import 'package:shared_cab/providers/app_providers.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 class RatingScreen extends ConsumerStatefulWidget {
@@ -24,12 +24,11 @@ class _RatingScreenState extends ConsumerState<RatingScreen> {
   void _submit() {
     if (_rating == 0) return;
     setState(() => _submitted = true);
-    final trip = ref.read(activeTripProvider);
-    if (trip != null) {
-      archiveTripToHistory(ref, trip);
-    }
-    ref.read(activeTripProvider.notifier).state = null;
-    ref.read(panicModeProvider.notifier).state = false;
+    RideSessionController.archiveActiveSession(RideSessionStore.widget(ref));
+    RideSessionController.closeActiveSession(
+      RideSessionStore.widget(ref),
+      clearRideContext: true,
+    );
 
     Future.delayed(const Duration(seconds: 2), () {
       if (!mounted) return;

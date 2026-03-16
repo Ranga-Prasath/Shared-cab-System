@@ -12,29 +12,45 @@ final gpsTrackingActiveProvider = StateProvider<bool>((ref) => false);
 class GpsService {
   GpsService._();
 
+  static const Duration defaultAcquisitionTimeout = Duration(seconds: 3);
+
   /// Check and request location permissions
   static Future<bool> ensurePermission() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return false;
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return false;
 
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) return false;
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) return false;
+      }
+      if (permission == LocationPermission.deniedForever) return false;
+
+      return true;
+    } catch (_) {
+      return false;
     }
-    if (permission == LocationPermission.deniedForever) return false;
-
-    return true;
   }
 
   /// Get the current position once
-  static Future<Position?> getCurrentPosition() async {
-    final ok = await ensurePermission();
-    if (!ok) return null;
+  static Future<Position?> getCurrentPosition({
+    Duration timeout = defaultAcquisitionTimeout,
+  }) async {
+    try {
+      final ok = await ensurePermission();
+      if (!ok) return null;
 
-    return await Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-    );
+      return await Geolocator
+          .getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+            ),
+          )
+          .timeout(timeout);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Start streaming position updates

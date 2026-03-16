@@ -1,19 +1,18 @@
-// -- Shared Cab System --
-// Available Rides Screen — shows real-time pending rides from other users
-
-import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:shared_cab/core/matching/matching_pipeline.dart';
+import 'package:shared_cab/core/services/ride_join_flow_coordinator.dart';
 import 'package:shared_cab/core/services/ride_service.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
-import 'package:shared_cab/core/utils/trip_pin_generator.dart';
+import 'package:shared_cab/core/utils/ride_formatters.dart';
+import 'package:shared_cab/core/utils/ride_trip_utils.dart';
 import 'package:shared_cab/models/ride_request_model.dart';
-import 'package:shared_cab/models/trip_model.dart';
+import 'package:shared_cab/models/scored_match_model.dart';
 import 'package:shared_cab/providers/app_providers.dart';
 import 'package:shared_cab/providers/gps_provider.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 
 class AvailableRidesScreen extends ConsumerStatefulWidget {
   const AvailableRidesScreen({super.key});
@@ -27,6 +26,9 @@ class _AvailableRidesScreenState extends ConsumerState<AvailableRidesScreen> {
   double? _myLat;
   double? _myLng;
   bool _loadingLocation = true;
+  String? _locationError;
+  final RideJoinFlowCoordinator _joinFlowCoordinator =
+      const RideJoinFlowCoordinator();
 
   @override
   void initState() {
@@ -35,70 +37,36 @@ class _AvailableRidesScreenState extends ConsumerState<AvailableRidesScreen> {
   }
 
   Future<void> _loadMyLocation() async {
-    final pos = await GpsService.getCurrentPosition();
+    final position = await GpsService.getCurrentPosition();
     if (!mounted) return;
+
     setState(() {
-      _myLat = pos?.latitude;
-      _myLng = pos?.longitude;
+      _myLat = position?.latitude;
+      _myLng = position?.longitude;
       _loadingLocation = false;
+      _locationError = position == null
+          ? 'Location access is required to discover rides near you.'
+          : null;
     });
   }
 
-  /// Returns true if the point (myLat, myLng) is within `thresholdKm` of the
-  /// line segment from pickup to dropoff.  This is a simplified "corridor"
-  /// check — it computes the perpendicular distance from the point to the
-  /// line defined by the two route endpoints.
-  bool _isAlongRoute(RideRequest ride, {double thresholdKm = 5.0}) {
-    if (_myLat == null || _myLng == null) return true; // show all if no GPS
-
-    final px = _myLat!;
-    final py = _myLng!;
-    final ax = ride.pickup.latitude;
-    final ay = ride.pickup.longitude;
-    final bx = ride.dropoff.latitude;
-    final by = ride.dropoff.longitude;
-
-    // Distance from a point to a line segment (in degrees, then convert)
-    final dx = bx - ax;
-    final dy = by - ay;
-    final lenSq = dx * dx + dy * dy;
-
-    double closestLat, closestLng;
-    if (lenSq == 0) {
-      closestLat = ax;
-      closestLng = ay;
-    } else {
-      var t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
-      t = t.clamp(0.0, 1.0);
-      closestLat = ax + t * dx;
-      closestLng = ay + t * dy;
-    }
-
-    const distance = Distance();
-    final distKm =
-        distance.distance(LatLng(px, py), LatLng(closestLat, closestLng)) /
-        1000;
-
-    return distKm <= thresholdKm;
-  }
-
-  void _shareRide(RideRequest ride) async {
+  Future<void> _shareRide(RideRequest ride) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Request to share ride?'),
         content: Text(
           'You will send a request to ${ride.userName.isNotEmpty ? ride.userName : "this rider"} '
           'to share the ride from ${ride.pickup.address} to ${ride.dropoff.address}.\n\n'
-          'They will need to accept your request before you can ride together.',
+          'They will need to accept before you can ride together.',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
+            onPressed: () => Navigator.pop(dialogContext, false),
             child: const Text('Cancel'),
           ),
           ElevatedButton.icon(
-            onPressed: () => Navigator.pop(ctx, true),
+            onPressed: () => Navigator.pop(dialogContext, true),
             icon: const Icon(Icons.send_rounded, size: 18),
             label: const Text('Send Request'),
           ),
@@ -108,241 +76,18 @@ class _AvailableRidesScreenState extends ConsumerState<AvailableRidesScreen> {
 
     if (confirmed != true || !mounted) return;
 
-    final currentUser = ref.read(effectiveCurrentUserProvider);
-    final myRide = ref.read(currentRideRequestProvider);
-
     try {
-      // Send request (not direct join)
-      await RideService.requestToJoin(
-        rideId: ride.id,
-        requesterId: currentUser.id,
-        requesterName: currentUser.name,
-        requesterGender: currentUser.gender,
-        requesterPickup: myRide?.pickup.address ?? '',
-        requesterDropoff: myRide?.dropoff.address ?? '',
-        requesterPickupLat: myRide?.pickup.latitude,
-        requesterPickupLng: myRide?.pickup.longitude,
+      await _joinFlowCoordinator.start(
+        context: context,
+        ref: ref,
+        hostRide: ride,
       );
-    } catch (e) {
+    } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to send request: $e')));
-      return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to send request: $error')),
+      );
     }
-
-    if (!mounted) return;
-
-    // Show "Waiting for approval" dialog and listen for response
-    _showWaitingDialog(ride, currentUser.id);
-  }
-
-  void _showWaitingDialog(RideRequest ride, String myId) {
-    final router = GoRouter.of(context);
-    bool dialogOpen = false;
-
-    // Create stream subscription OUTSIDE the dialog builder
-    late final StreamSubscription sub;
-    sub = RideService.rideStream(ride.id).listen((updatedRide) {
-      if (updatedRide == null || !mounted) return;
-      final amJoined = updatedRide.coRiderIds.contains(myId);
-
-      // Host chose to proceed and started matched trip.
-      if (updatedRide.readyToProceed &&
-          updatedRide.status == RideStatus.matched &&
-          amJoined) {
-        sub.cancel();
-
-        final distanceKm = updatedRide.pickup.distanceTo(updatedRide.dropoff);
-        final fareEstimate = (distanceKm * 22).clamp(120, 900).toDouble();
-
-        final trip = Trip(
-          id: 'trip_${DateTime.now().millisecondsSinceEpoch}',
-          matchId: 'shared_${updatedRide.id}',
-          riderIds: [updatedRide.userId, ...updatedRide.coRiderIds],
-          status: TripStatus.waitingForPickup,
-          startTime: DateTime.now(),
-          isNightTrip: updatedRide.isNightRide,
-          safeArrivalPin: generateTripPin(),
-          farePerPerson: fareEstimate / 2,
-          tripDistanceKm: distanceKm,
-        );
-
-        // Set trip provider FIRST
-        ref.read(panicModeProvider.notifier).state = false;
-        ref.read(activeTripProvider.notifier).state = trip;
-
-        // Navigate - router.go replaces the entire navigation stack
-        router.go('/trip/${trip.id}');
-        return;
-      }
-
-      // Host accepted but selected "wait for another rider".
-      if (updatedRide.waitForAnotherRider &&
-          updatedRide.status == RideStatus.pending &&
-          amJoined) {
-        sub.cancel();
-        if (dialogOpen && mounted) {
-          dialogOpen = false;
-          Navigator.of(context).pop();
-        }
-        _showWaitingForAnotherRiderDialog(
-          rideId: ride.id,
-          hostName: ride.userName,
-          myId: myId,
-        );
-        return;
-      }
-
-      // DECLINED - show message and dismiss
-      if (updatedRide.status == RideStatus.declined) {
-        sub.cancel();
-        if (dialogOpen && mounted) {
-          dialogOpen = false;
-          Navigator.of(context).pop();
-        }
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('${ride.userName} declined your ride request.'),
-              backgroundColor: AppColors.danger,
-            ),
-          );
-        }
-      }
-    });
-
-    // Show dialog (the stream is already listening above)
-    dialogOpen = true;
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => PopScope(
-        canPop: false,
-        child: AlertDialog(
-          title: const Row(
-            children: [
-              SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: AppColors.primary,
-                ),
-              ),
-              SizedBox(width: 12),
-              Text('Waiting for approval'),
-            ],
-          ),
-          content: Text(
-            '${ride.userName.isNotEmpty ? ride.userName : "The rider"} '
-            'is reviewing your request...\n\n'
-            'You will be notified when they accept or decline.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                sub.cancel();
-                dialogOpen = false;
-                Navigator.of(ctx).pop();
-              },
-              child: const Text('Cancel Request'),
-            ),
-          ],
-        ),
-      ),
-    ).then((_) {
-      dialogOpen = false;
-      sub.cancel();
-    });
-  }
-
-  void _showWaitingForAnotherRiderDialog({
-    required String rideId,
-    required String hostName,
-    required String myId,
-  }) {
-    bool dialogOpen = false;
-    final router = GoRouter.of(context);
-
-    late final StreamSubscription sub;
-    sub = RideService.rideStream(rideId).listen((updatedRide) {
-      if (updatedRide == null || !mounted) return;
-      final amJoined = updatedRide.coRiderIds.contains(myId);
-
-      if (!amJoined) {
-        sub.cancel();
-        if (dialogOpen) {
-          dialogOpen = false;
-          Navigator.of(context).pop();
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('You left the shared ride.'),
-            backgroundColor: AppColors.warning,
-          ),
-        );
-        return;
-      }
-
-      if (updatedRide.readyToProceed &&
-          updatedRide.status == RideStatus.matched) {
-        sub.cancel();
-        final distanceKm = updatedRide.pickup.distanceTo(updatedRide.dropoff);
-        final fareEstimate = (distanceKm * 22).clamp(120, 900).toDouble();
-
-        final trip = Trip(
-          id: 'trip_${DateTime.now().millisecondsSinceEpoch}',
-          matchId: 'shared_${updatedRide.id}',
-          riderIds: [updatedRide.userId, ...updatedRide.coRiderIds],
-          status: TripStatus.waitingForPickup,
-          startTime: DateTime.now(),
-          isNightTrip: updatedRide.isNightRide,
-          safeArrivalPin: generateTripPin(),
-          farePerPerson: fareEstimate / 2,
-          tripDistanceKm: distanceKm,
-        );
-
-        ref.read(panicModeProvider.notifier).state = false;
-        ref.read(activeTripProvider.notifier).state = trip;
-
-        if (dialogOpen && mounted) {
-          dialogOpen = false;
-          Navigator.of(context).pop();
-        }
-        router.go('/trip/${trip.id}');
-      }
-    });
-
-    dialogOpen = true;
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => PopScope(
-        canPop: false,
-        child: AlertDialog(
-          title: const Text('Waiting for another rider'),
-          content: Text(
-            '${hostName.isNotEmpty ? hostName : "Host"} accepted your request and is waiting for one more rider.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () async {
-                final navigator = Navigator.of(ctx);
-                await RideService.cancelJoinedRide(rideId);
-                if (!mounted) return;
-                dialogOpen = false;
-                navigator.pop();
-              },
-              child: const Text('Cancel Ride'),
-            ),
-          ],
-        ),
-      ),
-    ).then((_) {
-      dialogOpen = false;
-      sub.cancel();
-    });
   }
 
   @override
@@ -350,6 +95,9 @@ class _AvailableRidesScreenState extends ConsumerState<AvailableRidesScreen> {
     final isNight = ref.watch(effectiveNightModeProvider);
     final sameGenderOnly = ref.watch(sameGenderOnlyProvider);
     final currentUser = ref.watch(effectiveCurrentUserProvider);
+    final currentRide = ref.watch(currentRideRequestProvider);
+    final ridePreferences = ref.watch(ridePreferencesProvider);
+    final hasMatchContext = currentRide != null || (_myLat != null && _myLng != null);
 
     return Scaffold(
       appBar: AppBar(
@@ -360,16 +108,9 @@ class _AvailableRidesScreenState extends ConsumerState<AvailableRidesScreen> {
         ),
       ),
       body: _loadingLocation
-          ? const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(color: AppColors.primary),
-                  SizedBox(height: 16),
-                  Text('Getting your location...'),
-                ],
-              ),
-            )
+          ? _buildLoadingLocation()
+          : !hasMatchContext
+          ? _buildLocationRequired(context)
           : StreamBuilder<List<RideRequest>>(
               stream: RideService.availableRidesStream(),
               builder: (context, snapshot) {
@@ -381,17 +122,22 @@ class _AvailableRidesScreenState extends ConsumerState<AvailableRidesScreen> {
                   return Center(child: Text('Error: ${snapshot.error}'));
                 }
 
-                final allRides = snapshot.data ?? [];
-                // Filter to rides along user's route
-                final nearbyRides = allRides
-                    .where((r) => _isAlongRoute(r))
-                    .where(
-                      (r) =>
-                          !sameGenderOnly ||
-                          r.userGender.toLowerCase() ==
-                              currentUser.gender.toLowerCase(),
-                    )
-                    .toList();
+                final nearbyRides = MatchingPipeline.evaluate(
+                  candidates: snapshot.data ?? const [],
+                  context: MatchContext(
+                    currentUserId: currentUser.id,
+                    currentUserGender: currentUser.gender,
+                    riderPreferences: ridePreferences,
+                    isNightMode: isNight,
+                    sameGenderOnly: sameGenderOnly,
+                    now: DateTime.now(),
+                    referenceRide: currentRide,
+                    desiredDepartureTime: currentRide?.departureTime,
+                    currentLocation: _myLat == null || _myLng == null
+                        ? null
+                        : LatLng(_myLat!, _myLng!),
+                  ),
+                );
 
                 if (nearbyRides.isEmpty) {
                   return _buildEmpty(context);
@@ -426,6 +172,77 @@ class _AvailableRidesScreenState extends ConsumerState<AvailableRidesScreen> {
     );
   }
 
+  Widget _buildLoadingLocation() {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(color: AppColors.primary),
+          SizedBox(height: 16),
+          Text('Getting your location...'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLocationRequired(BuildContext context) {
+    final message =
+        _locationError ??
+        'Add a ride or enable location so matching has a real route to evaluate.';
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(
+              Icons.location_searching_rounded,
+              size: 64,
+              color: AppColors.warning,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Location required',
+              style: Theme.of(context).textTheme.titleMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              style: Theme.of(context).textTheme.bodySmall,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _loadingLocation = true;
+                    _locationError = null;
+                  });
+                  _loadMyLocation();
+                },
+                icon: const Icon(Icons.my_location_rounded),
+                label: const Text('Retry Location'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => context.goNamed('createRide'),
+                icon: const Icon(Icons.add_road),
+                label: const Text('Create Ride Instead'),
+              ),
+            ),
+          ],
+        ).animate().fadeIn(),
+      ),
+    );
+  }
+
   Widget _buildEmpty(BuildContext context) {
     return Center(
       child: Padding(
@@ -447,7 +264,7 @@ class _AvailableRidesScreenState extends ConsumerState<AvailableRidesScreen> {
             const SizedBox(height: 8),
             Text(
               'No other riders have posted rides along your route yet. '
-              'Create your own ride and others will find you!',
+              'Create your own ride and others will find you.',
               style: Theme.of(context).textTheme.bodySmall,
               textAlign: TextAlign.center,
             ),
@@ -465,7 +282,7 @@ class _AvailableRidesScreenState extends ConsumerState<AvailableRidesScreen> {
 
   Widget _buildRideList(
     BuildContext context,
-    List<RideRequest> rides,
+    List<ScoredMatch> rides,
     bool isNight,
   ) {
     return ListView.builder(
@@ -508,11 +325,11 @@ class _AvailableRidesScreenState extends ConsumerState<AvailableRidesScreen> {
           );
         }
 
-        final ride = rides[index - 1];
+        final match = rides[index - 1];
         return _RideCard(
-              ride: ride,
+              match: match,
               isNight: isNight,
-              onShareRide: () => _shareRide(ride),
+              onShareRide: () => _shareRide(match.ride),
               myLat: _myLat,
               myLng: _myLng,
             )
@@ -525,41 +342,33 @@ class _AvailableRidesScreenState extends ConsumerState<AvailableRidesScreen> {
 }
 
 class _RideCard extends StatelessWidget {
-  final RideRequest ride;
-  final bool isNight;
-  final VoidCallback onShareRide;
-  final double? myLat;
-  final double? myLng;
-
   const _RideCard({
-    required this.ride,
+    required this.match,
     required this.isNight,
     required this.onShareRide,
     this.myLat,
     this.myLng,
   });
 
-  String _timeAgo(DateTime time) {
-    final diff = DateTime.now().difference(time);
-    if (diff.inMinutes < 1) return 'just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    return '${diff.inDays}d ago';
-  }
-
-  String _departureLabel(DateTime time) {
-    final diff = time.difference(DateTime.now());
-    if (diff.isNegative) return 'Departing now';
-    if (diff.inMinutes < 60) return 'In ${diff.inMinutes} min';
-    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
-  }
+  final ScoredMatch match;
+  final bool isNight;
+  final VoidCallback onShareRide;
+  final double? myLat;
+  final double? myLng;
 
   @override
   Widget build(BuildContext context) {
-    final distanceKm = ride.pickup.distanceTo(ride.dropoff);
-    final fareEstimate = (distanceKm * 22).clamp(120, 900).toDouble();
-    final sharedFare = fareEstimate / 2;
-    final savingsPercent = 50;
+    final ride = match.ride;
+    final distanceKm = RideTripUtils.rideDistanceKm(ride);
+    final projectedRiderCount =
+        RideTripUtils.canonicalRiderIds(ride).length + 1;
+    final fareEstimate = RideTripUtils.estimateTotalFare(distanceKm);
+    final sharedFare = RideTripUtils.farePerRider(
+      totalFare: fareEstimate,
+      riderCount: projectedRiderCount,
+    );
+    final savingsPercent = ((1 - (1 / projectedRiderCount)) * 100).round();
+    final matchSummary = match.reasons.take(2).join(' • ');
 
     return Card(
       margin: const EdgeInsets.only(bottom: 14),
@@ -568,7 +377,6 @@ class _RideCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header: poster name + time
             Row(
               children: [
                 CircleAvatar(
@@ -577,9 +385,7 @@ class _RideCard extends StatelessWidget {
                       ? AppColors.nightAccent
                       : AppColors.primary,
                   child: Text(
-                    ride.userName.isNotEmpty
-                        ? ride.userName[0].toUpperCase()
-                        : '?',
+                    RideFormatters.safeInitial(ride.userName),
                     style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w700,
@@ -599,7 +405,7 @@ class _RideCard extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        'Posted ${_timeAgo(ride.createdAt)}',
+                        'Posted ${RideFormatters.timeAgo(ride.createdAt)}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: AppColors.textMuted,
                         ),
@@ -617,7 +423,7 @@ class _RideCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    _departureLabel(ride.departureTime),
+                    RideFormatters.departureLabel(ride.departureTime),
                     style: const TextStyle(
                       color: AppColors.info,
                       fontWeight: FontWeight.w600,
@@ -627,10 +433,7 @@ class _RideCard extends StatelessWidget {
                 ),
               ],
             ),
-
             const SizedBox(height: 14),
-
-            // Route: pickup → dropoff
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -650,8 +453,9 @@ class _RideCard extends StatelessWidget {
                       Expanded(
                         child: Text(
                           ride.pickup.address,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(fontWeight: FontWeight.w600),
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -680,8 +484,9 @@ class _RideCard extends StatelessWidget {
                       Expanded(
                         child: Text(
                           ride.dropoff.address,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(fontWeight: FontWeight.w600),
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -691,10 +496,17 @@ class _RideCard extends StatelessWidget {
                 ],
               ),
             ),
-
             const SizedBox(height: 12),
-
-            // Fare info
+            if (matchSummary.isNotEmpty) ...[
+              Text(
+                matchSummary,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -749,10 +561,7 @@ class _RideCard extends StatelessWidget {
                 ),
               ],
             ),
-
             const SizedBox(height: 14),
-
-            // Share Ride button
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(

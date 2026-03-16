@@ -24,7 +24,7 @@ The app demonstrates how design thinking methodology (Empathize → Define → I
 ### 💡 Solution
 
 A shared cab platform that:
-- **Matches riders** with 80%+ route overlap within a 15-minute departure window
+- **Matches riders** with 35%+ route overlap within a 15-minute departure window
 - **Splits fares** automatically (up to 67% savings)
 - **Activates night safety mode** (9 PM – 6 AM) with SOS, safe arrival PIN, and emergency contacts
 - **Tracks trips live** on a map with route deviation alerts
@@ -36,9 +36,9 @@ A shared cab platform that:
 ### Core Features
 | Feature | Description |
 |---------|-------------|
-| 🔐 **Phone + OTP Auth** | Simulated login with OTP verification |
+| 🔐 **Email Auth** | Firebase email/password sign-in with local fallback for demo mode |
 | 🗺️ **Ride Creation** | Pick locations from Chennai landmarks, set departure time |
-| 🤝 **Smart Matching** | 80/15 Rule — ≥80% route overlap, ≤15 min departure gap |
+| 🤝 **Smart Matching** | 35/15 Rule — ≥35% route overlap, ≤15 min departure gap |
 | 💰 **Fare Splitting** | Auto-calculated per-head fare with savings % |
 | ⭐ **Rider Ratings** | Post-trip rating system for co-riders |
 
@@ -47,7 +47,7 @@ A shared cab platform that:
 |---------|-------------|
 | 🌙 **Auto Night Mode** | Dark theme + enhanced safety from 9 PM – 6 AM |
 | 🔑 **Safe Arrival PIN** | 4-digit verification at destination |
-| 🆘 **Panic Mode** | SOS to emergency contacts + police (100/108/112) |
+| 🆘 **Panic Mode** | Opens an SOS workflow with quick-dial actions and saved contacts |
 | 👤 **Same-Gender Matching** | Optional filter for night rides |
 | 📞 **Emergency Contacts** | Add/manage trusted contacts |
 
@@ -56,7 +56,7 @@ A shared cab platform that:
 |---------|-------------|
 | 🗺️ **Map-Centric Trip View** | Full-screen OpenStreetMap with route polyline, animated cab, PICKUP/DROP markers — inspired by Ola/Uber/Rapido |
 | 📡 **Live GPS Tracking** | Real-time browser geolocation with trail, pulsing dot, re-center FAB |
-| ⚠️ **Route Deviation Alert** | Auto-detects when cab goes off-route, one-tap emergency contact alert |
+| ⚠️ **Route Deviation Alert** | Auto-detects when cab goes off-route and opens the SOS flow |
 | 🔄 **Recurring Ride Scheduler** | Set daily commute once, auto-match every day (day picker, time selector, swap button) |
 
 ---
@@ -71,7 +71,7 @@ lib/
 ├── data/
 │   └── mock/            # Mock data — users, locations, matches, deviations
 ├── features/
-│   ├── auth/            # Login + OTP screens
+│   ├── auth/            # Login + sign-up screens
 │   ├── home/            # Dashboard with quick actions
 │   ├── matching/        # Match list with overlap %, fare, savings
 │   ├── profile/         # User profile, settings, night mode toggle
@@ -140,7 +140,7 @@ flutter run -d chrome
 ### Demo Flow
 
 ```
-Login (any phone) → Enter OTP (any 4 digits) → Home
+Sign up / Login → Home
   → Create Ride → Select Pickup & Drop → Find Matches
     → Accept Match → Trip Status (Map View!)
       → Watch cab animate along route
@@ -181,7 +181,7 @@ latlong2: ^0.9.1             # Coordinate math
 
 ## ⚠️ Disclaimer
 
-This is an **academic demo project** built for coursework evaluation. All data is **mock/simulated** — no real backend, payments, or ride matching exists. The GPS tracking uses browser geolocation with a fallback to mock Chennai coordinates for reliability on desktop Chrome.
+This is an **academic demo project** built for coursework evaluation. The app now uses a real Flutter client, Firebase auth/Firestore flows where configured, and a deterministic matching pipeline, but several safety actions remain **demo-only UX**: the app does not automatically message emergency contacts or dispatch law enforcement. GPS tracking uses browser geolocation and falls back to a map center while waiting for a live fix.
 
 ---
 

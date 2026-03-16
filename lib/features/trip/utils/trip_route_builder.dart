@@ -32,6 +32,7 @@ import 'dart:math' as math;
 
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
+import 'package:shared_cab/core/constants/app_constants.dart';
 
 import 'trip_map_math.dart';
 
@@ -41,7 +42,7 @@ class TripRouteBuilder {
   static const _osrmHost = 'router.project-osrm.org';
   static const _maxJumpMeters = 1500.0;
   static const Distance _distance = Distance();
-  static const _matchCorridorMeters = 1200.0;
+  static const _matchCorridorMeters = AppConstants.matchCorridorMeters;
 
   /// Fetches a road-following driving route. Falls back to mock route when
   /// network or API is unavailable.
@@ -204,7 +205,7 @@ class TripRouteBuilder {
   static bool routesShareCorridor(
     List<LatLng> routeA,
     List<LatLng> routeB, {
-    double thresholdPercent = 35,
+    double thresholdPercent = AppConstants.routeOverlapThresholdPercent,
     double corridorMeters = _matchCorridorMeters,
   }) {
     return routeOverlapPercent(
@@ -242,7 +243,10 @@ class TripRouteBuilder {
         _OrderedPickupCandidate(
           point: uniquePickups[index],
           inputIndex: index,
-          destinationMeters: _distance.distance(uniquePickups[index], destination),
+          destinationMeters: _distance.distance(
+            uniquePickups[index],
+            destination,
+          ),
         ),
     ];
 

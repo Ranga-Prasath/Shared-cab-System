@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_cab/core/services/auth_service.dart';
+import 'package:shared_cab/core/session/ride_session_controller.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
+import 'package:shared_cab/core/utils/ride_formatters.dart';
 import 'package:shared_cab/providers/app_providers.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
@@ -31,7 +33,7 @@ class ProfileScreen extends ConsumerWidget {
                     ? AppColors.nightAccent
                     : AppColors.primary,
                 child: Text(
-                  user.name[0],
+                  RideFormatters.safeInitial(user.name),
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 36,
@@ -137,11 +139,13 @@ class ProfileScreen extends ConsumerWidget {
                 child: OutlinedButton.icon(
                   onPressed: () async {
                     await AuthService.signOut();
+                    RideSessionController.resetSessionState(
+                      RideSessionStore.widget(ref),
+                      clearRideHistory: true,
+                    );
                     ref.read(currentUserOverrideProvider.notifier).state = null;
-                    ref.read(activeTripProvider.notifier).state = null;
-                    ref.read(rideHistoryProvider.notifier).state = [];
-                    ref.read(currentRideRequestProvider.notifier).state = null;
-                    ref.read(panicModeProvider.notifier).state = false;
+                    ref.read(recurringRidesSeededProvider.notifier).state =
+                        false;
                     ref.read(bottomNavIndexProvider.notifier).state = 0;
                     if (context.mounted) context.goNamed('login');
                   },

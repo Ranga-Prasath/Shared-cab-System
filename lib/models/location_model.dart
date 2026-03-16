@@ -1,6 +1,8 @@
 // -- Shared Cab System --
 // Core model: Location Point
 
+import 'dart:math' as math;
+
 class LocationPoint {
   final double latitude;
   final double longitude;
@@ -14,10 +16,24 @@ class LocationPoint {
     this.landmark,
   });
 
-  /// Simple straight-line distance estimate (demo only)
+  /// Great-circle distance in kilometers.
   double distanceTo(LocationPoint other) {
-    final dLat = (other.latitude - latitude).abs();
-    final dLon = (other.longitude - longitude).abs();
-    return (dLat + dLon) * 111; // rough km per degree
+    const earthRadiusKm = 6371.0;
+    final dLat = _toRadians(other.latitude - latitude);
+    final dLon = _toRadians(other.longitude - longitude);
+    final lat1 = _toRadians(latitude);
+    final lat2 = _toRadians(other.latitude);
+
+    final h =
+        _sinSquared(dLat / 2) +
+        math.cos(lat1) * math.cos(lat2) * _sinSquared(dLon / 2);
+    return earthRadiusKm * 2 * math.atan2(math.sqrt(h), math.sqrt(1 - h));
+  }
+
+  static double _toRadians(double degrees) => degrees * (math.pi / 180);
+
+  static double _sinSquared(double value) {
+    final sine = math.sin(value);
+    return sine * sine;
   }
 }

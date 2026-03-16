@@ -8,14 +8,16 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:shared_cab/core/services/auth_service.dart';
 import 'package:shared_cab/core/services/geocoding_service.dart';
 import 'package:shared_cab/core/services/ride_service.dart';
+import 'package:shared_cab/core/session/ride_session_controller.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
-import 'package:shared_cab/core/utils/trip_pin_generator.dart';
 import 'package:shared_cab/core/utils/night_mode_utils.dart';
+import 'package:shared_cab/core/utils/ride_trip_utils.dart';
 import 'package:shared_cab/models/location_model.dart';
 import 'package:shared_cab/models/ride_request_model.dart';
-import 'package:shared_cab/models/trip_model.dart';
+import 'package:shared_cab/models/user_model.dart';
 import 'package:shared_cab/providers/app_providers.dart';
 import 'package:shared_cab/providers/gps_provider.dart';
 import 'package:uuid/uuid.dart';
@@ -34,8 +36,6 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
   final TextEditingController _pickupSearchController = TextEditingController();
   final TextEditingController _dropoffSearchController =
       TextEditingController();
-  final TextEditingController _pickupSearchController =
-      TextEditingController();
 
   LocationPoint? _pickup;
   LocationPoint? _dropoff;
@@ -46,13 +46,9 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
   bool _locationUnavailable = false;
   String? _pendingAction;
 
-<<<<<<< HEAD
-  // Drop-off search state
-=======
   // Search state
   List<LocationPoint> _pickupSearchResults = [];
   bool _isSearchingPickup = false;
->>>>>>> 80114ce (Polish trip routing and demo verification)
   List<LocationPoint> _searchResults = [];
   bool _isSearching = false;
   Timer? _pickupSearchDebounce;
@@ -61,15 +57,9 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
   bool _isLoadingPreviewRoute = false;
   int _previewRouteRequestId = 0;
 
-  // Pickup search state
-  List<LocationPoint> _pickupSearchResults = [];
-  bool _isPickupSearching = false;
-  Timer? _pickupSearchDebounce;
-
   @override
   void initState() {
     super.initState();
-    unawaited(RideService.cancelMyPreviousRides());
     _setPickupFromCurrentLocation();
   }
 
@@ -77,13 +67,8 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
   void dispose() {
     _pickupSearchController.dispose();
     _dropoffSearchController.dispose();
-<<<<<<< HEAD
-    _pickupSearchController.dispose();
-=======
     _pickupSearchDebounce?.cancel();
->>>>>>> 80114ce (Polish trip routing and demo verification)
     _searchDebounce?.cancel();
-    _pickupSearchDebounce?.cancel();
     super.dispose();
   }
 
@@ -118,10 +103,6 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
         address: address,
       );
       _pickupSearchController.text = address;
-<<<<<<< HEAD
-      _pickupSearchResults = [];
-=======
->>>>>>> 80114ce (Polish trip routing and demo verification)
       _isLocatingPickup = false;
       _locationUnavailable = false;
     });
@@ -183,35 +164,6 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
     });
   }
 
-  void _onPickupSearchChanged(String query) {
-    _pickupSearchDebounce?.cancel();
-    if (query.trim().length < 3) {
-      setState(() {
-        _pickupSearchResults = [];
-        _isPickupSearching = false;
-      });
-      return;
-    }
-    setState(() => _isPickupSearching = true);
-    _pickupSearchDebounce = Timer(const Duration(milliseconds: 600), () async {
-      final results = await GeocodingService.searchPlaces(query);
-      if (!mounted) return;
-      setState(() {
-        _pickupSearchResults = results;
-        _isPickupSearching = false;
-      });
-    });
-  }
-
-  void _selectPickup(LocationPoint location) {
-    setState(() {
-      _pickup = location;
-      _pickupSearchController.text = location.address;
-      _pickupSearchResults = [];
-    });
-    _focusRouteOrPickup();
-  }
-
   void _selectDropoff(LocationPoint location) {
     setState(() {
       _dropoff = location;
@@ -261,7 +213,8 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
 
       final pickup = _pickup!;
       final dropoff = _dropoff!;
-      final currentUser = ref.read(effectiveCurrentUserProvider);
+      final currentUser = await _resolveCurrentUserForRide();
+      final riderPreferences = ref.read(ridePreferencesProvider);
       final previewOrFallbackRoute = await _resolveRouteForRide(
         pickup: pickup,
         dropoff: dropoff,
@@ -273,7 +226,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
         previewOrFallbackRoute,
       );
 
-      final ride = RideRequest(
+      final baseRide = RideRequest(
         id: const Uuid().v4(),
         userId: currentUser.id,
         userName: currentUser.name,
@@ -290,6 +243,11 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
               ),
             )
             .toList(),
+        preferenceSnapshot: riderPreferences,
+      );
+      final ride = RideTripUtils.prepareRideForPublication(
+        baseRide,
+        directRide: startNow,
       );
 
       ref.read(currentRideRequestProvider.notifier).state = ride;
@@ -309,22 +267,12 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
       }
 
       if (startNow) {
-        final fareEstimate = (distanceKm * 22).clamp(120, 900).toDouble();
-
-        final trip = Trip(
-          id: 'trip_${DateTime.now().millisecondsSinceEpoch}',
-          matchId: 'direct_${ride.id}',
-          riderIds: [ref.read(effectiveCurrentUserProvider).id],
-          status: TripStatus.waitingForPickup,
-          startTime: DateTime.now(),
-          isNightTrip: ride.isNightRide,
-          safeArrivalPin: generateTripPin(),
-          farePerPerson: fareEstimate,
-          tripDistanceKm: distanceKm,
+        final trip = RideSessionController.startDirectTrip(
+          RideSessionStore.widget(ref),
+          ride: ride,
+          riderId: ref.read(effectiveCurrentUserProvider).id,
+          distanceKm: distanceKm,
         );
-
-        ref.read(panicModeProvider.notifier).state = false;
-        ref.read(activeTripProvider.notifier).state = trip;
 
         if (!mounted) return;
         context.goNamed('tripStatus', pathParameters: {'tripId': trip.id});
@@ -345,6 +293,22 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
           _pendingAction = null;
         });
       }
+    }
+  }
+
+  Future<User> _resolveCurrentUserForRide() async {
+    final currentUser = ref.read(effectiveCurrentUserProvider);
+    final currentUid = AuthService.currentUserId;
+    if (currentUid == null || currentUid != currentUser.id) {
+      return currentUser;
+    }
+
+    try {
+      final canonicalUser = await AuthService.getUserProfile(currentUid);
+      ref.read(currentUserOverrideProvider.notifier).state = canonicalUser;
+      return canonicalUser;
+    } catch (_) {
+      return currentUser;
     }
   }
 
@@ -397,9 +361,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
 
     for (var attempt = 0; attempt < attempts; attempt++) {
       try {
-        await RideService.publishRide(
-          ride,
-        ).timeout(const Duration(seconds: 5));
+        await RideService.publishRide(ride).timeout(const Duration(seconds: 5));
         return;
       } catch (error) {
         lastError = error;
@@ -691,13 +653,70 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
 
             const SizedBox(height: 20),
 
-            // ── Pickup (search + current location) ──
-            Text(
-              'Pickup Location',
-              style: Theme.of(context).textTheme.titleMedium,
+            // ── Pickup (GPS + real address) ──
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.info.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppColors.info.withValues(alpha: 0.2),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.my_location_rounded,
+                    color: AppColors.info,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      _pickup?.address ??
+                          (_isLocatingPickup
+                              ? 'Fetching current location...'
+                              : 'Current location unavailable'),
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _isLocatingPickup
+                        ? null
+                        : _setPickupFromCurrentLocation,
+                    icon: _isLocatingPickup
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.gps_fixed_rounded, size: 16),
+                    label: const Text('Use Current'),
+                  ),
+                ],
+              ),
             ).animate().fadeIn(delay: 150.ms),
-            const SizedBox(height: 8),
-            _buildPickupSearchField().animate().fadeIn(delay: 200.ms),
+
+            if (_locationUnavailable) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Text(
+                  'Location permission is off. Enable GPS to auto-set pickup.',
+                  style: TextStyle(
+                    color: AppColors.warning,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
 
             const SizedBox(height: 16),
 
@@ -879,10 +898,6 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
     );
   }
 
-<<<<<<< HEAD
-  /// Search-based pickup field with autocomplete + "Use Current Location" button.
-=======
->>>>>>> 80114ce (Polish trip routing and demo verification)
   Widget _buildPickupSearchField() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -891,16 +906,9 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
           controller: _pickupSearchController,
           onChanged: _onPickupSearchChanged,
           decoration: InputDecoration(
-<<<<<<< HEAD
-            hintText: 'Search pickup location...',
-            prefixIcon:
-                const Icon(Icons.my_location_rounded, color: AppColors.info),
-            suffixIcon: _isPickupSearching
-=======
             hintText: 'Search pickup place (instead of current location)...',
             prefixIcon: const Icon(Icons.my_location, color: AppColors.info),
             suffixIcon: _isSearchingPickup
->>>>>>> 80114ce (Polish trip routing and demo verification)
                 ? const Padding(
                     padding: EdgeInsets.all(12),
                     child: SizedBox(
@@ -910,22 +918,6 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
                     ),
                   )
                 : _pickupSearchController.text.isNotEmpty
-<<<<<<< HEAD
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () {
-                          _pickupSearchController.clear();
-                          setState(() {
-                            _pickup = null;
-                            _pickupSearchResults = [];
-                          });
-                        },
-                      )
-                    : null,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-=======
                 ? IconButton(
                     icon: const Icon(Icons.clear),
                     onPressed: () {
@@ -937,7 +929,6 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
                   )
                 : null,
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
->>>>>>> 80114ce (Polish trip routing and demo verification)
           ),
         ),
         if (_pickupSearchResults.isNotEmpty)
@@ -960,12 +951,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
               shrinkWrap: true,
               padding: EdgeInsets.zero,
               itemCount: _pickupSearchResults.length,
-<<<<<<< HEAD
-              separatorBuilder: (_, __) =>
-                  const Divider(height: 1, indent: 48),
-=======
               separatorBuilder: (_, _) => const Divider(height: 1, indent: 48),
->>>>>>> 80114ce (Polish trip routing and demo verification)
               itemBuilder: (context, index) {
                 final loc = _pickupSearchResults[index];
                 return ListTile(
@@ -987,51 +973,6 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
               },
             ),
           ),
-<<<<<<< HEAD
-        const SizedBox(height: 8),
-        // "Use Current Location" shortcut button
-        OutlinedButton.icon(
-          onPressed: _isLocatingPickup ? null : _setPickupFromCurrentLocation,
-          icon: _isLocatingPickup
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.gps_fixed_rounded, size: 18),
-          label: Text(
-            _isLocatingPickup ? 'Fetching location...' : '📍 Use Current Location',
-          ),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: AppColors.info,
-            side: BorderSide(color: AppColors.info.withValues(alpha: 0.4)),
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
-        ),
-        if (_locationUnavailable)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppColors.warning.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Text(
-                'Location permission is off. Enable GPS to auto-set pickup.',
-                style: TextStyle(
-                  color: AppColors.warning,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-          ),
-=======
->>>>>>> 80114ce (Polish trip routing and demo verification)
       ],
     );
   }

@@ -23,6 +23,7 @@ class LiveTrackingScreen extends ConsumerStatefulWidget {
 class _LiveTrackingScreenState extends ConsumerState<LiveTrackingScreen>
     with SingleTickerProviderStateMixin {
   static const _maxTrailPoints = 450;
+  static const _fallbackMapCenter = LatLng(13.0827, 80.2707);
 
   final MapController _mapController = MapController();
   final ValueNotifier<_LiveVisualState> _liveVisualState = ValueNotifier(
@@ -67,17 +68,10 @@ class _LiveTrackingScreenState extends ConsumerState<LiveTrackingScreen>
     }
 
     Position? initialPosition;
-    try {
-      initialPosition = await GpsService.getCurrentPosition().timeout(
-        const Duration(seconds: 3),
-      );
-    } catch (_) {
-      initialPosition = null;
-    }
+    initialPosition = await GpsService.getCurrentPosition();
 
-    final fallbackPosition = const LatLng(13.0827, 80.2707);
     final startingPosition = initialPosition == null
-        ? fallbackPosition
+        ? null
         : LatLng(initialPosition.latitude, initialPosition.longitude);
 
     final initialHeading =
@@ -88,8 +82,10 @@ class _LiveTrackingScreenState extends ConsumerState<LiveTrackingScreen>
 
     _liveVisualState.value = _LiveVisualState(
       currentPosition: startingPosition,
+      fallbackCenter: _fallbackMapCenter,
+      hasLiveFix: initialPosition != null,
       headingDegrees: initialHeading,
-      trail: [startingPosition],
+      trail: startingPosition == null ? const [] : [startingPosition],
     );
 
     if (!mounted) return;
@@ -103,6 +99,7 @@ class _LiveTrackingScreenState extends ConsumerState<LiveTrackingScreen>
     _positionSubscription = GpsService.positionStream().listen(
       _handlePositionUpdate,
       onError: (_) {
+        ref.read(gpsTrackingActiveProvider.notifier).state = false;
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -112,7 +109,7 @@ class _LiveTrackingScreenState extends ConsumerState<LiveTrackingScreen>
       },
     );
 
-    ref.read(gpsTrackingActiveProvider.notifier).state = true;
+    ref.read(gpsTrackingActiveProvider.notifier).state = initialPosition != null;
   }
 
   void _handlePositionUpdate(Position position) {
@@ -132,11 +129,13 @@ class _LiveTrackingScreenState extends ConsumerState<LiveTrackingScreen>
 
     _liveVisualState.value = previousState.copyWith(
       currentPosition: nextPosition,
+      hasLiveFix: true,
       trail: updatedTrail,
       headingDegrees: heading,
     );
 
     _mapController.move(nextPosition, 16.0);
+    ref.read(gpsTrackingActiveProvider.notifier).state = true;
   }
 
   @override
@@ -151,10 +150,10 @@ class _LiveTrackingScreenState extends ConsumerState<LiveTrackingScreen>
           ValueListenableBuilder<_LiveVisualState>(
             valueListenable: _liveVisualState,
             builder: (context, visualState, _) {
-              final isGpsActive = visualState.currentPosition != null;
+              final isGpsActive = visualState.hasLiveFix;
               final statusColor = isGpsActive
                   ? AppColors.success
-                  : AppColors.danger;
+                  : AppColors.warning;
 
               return Container(
                 margin: const EdgeInsets.only(right: 12),
@@ -168,7 +167,7 @@ class _LiveTrackingScreenState extends ConsumerState<LiveTrackingScreen>
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      isGpsActive ? 'GPS Active' : 'No GPS',
+                      isGpsActive ? 'GPS Active' : 'Awaiting GPS',
                       style: TextStyle(
                         fontSize: 12,
                         color: statusColor,
@@ -221,22 +220,30 @@ class _LiveTrackingScreenState extends ConsumerState<LiveTrackingScreen>
 
 class _LiveVisualState {
   final LatLng? currentPosition;
+  final LatLng fallbackCenter;
+  final bool hasLiveFix;
   final double headingDegrees;
   final List<LatLng> trail;
 
   const _LiveVisualState({
     this.currentPosition,
+    this.fallbackCenter = _LiveTrackingScreenState._fallbackMapCenter,
+    this.hasLiveFix = false,
     this.headingDegrees = 0,
     this.trail = const [],
   });
 
   _LiveVisualState copyWith({
     LatLng? currentPosition,
+    LatLng? fallbackCenter,
+    bool? hasLiveFix,
     double? headingDegrees,
     List<LatLng>? trail,
   }) {
     return _LiveVisualState(
       currentPosition: currentPosition ?? this.currentPosition,
+      fallbackCenter: fallbackCenter ?? this.fallbackCenter,
+      hasLiveFix: hasLiveFix ?? this.hasLiveFix,
       headingDegrees: headingDegrees ?? this.headingDegrees,
       trail: trail ?? this.trail,
     );
@@ -315,8 +322,7 @@ class _LiveMapView extends StatelessWidget {
           animation: Listenable.merge([visualStateListenable, pulseController]),
           builder: (context, _) {
             final state = visualStateListenable.value;
-            final center =
-                state.currentPosition ?? const LatLng(13.0827, 80.2707);
+            final center = state.currentPosition ?? state.fallbackCenter;
             final ride = rideRequest;
 
             return FlutterMap(
@@ -457,8 +463,14 @@ class _LiveInfoPanel extends StatelessWidget {
       valueListenable: visualStateListenable,
       builder: (context, state, _) {
         final coordinatesLabel = state.currentPosition == null
-            ? 'Waiting for signal...'
+            ? 'Waiting for live GPS fix...'
             : '${state.currentPosition!.latitude.toStringAsFixed(6)}, ${state.currentPosition!.longitude.toStringAsFixed(6)}';
+        final trackingCopy = state.hasLiveFix
+            ? 'GPS tracking active: live location is monitored for safety'
+            : 'Map is centered on a fallback area until live GPS is available.';
+        final trackingColor = state.hasLiveFix
+            ? AppColors.success
+            : AppColors.warning;
 
         return Container(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
@@ -561,26 +573,28 @@ class _LiveInfoPanel extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: AppColors.success.withValues(alpha: 0.08),
+                  color: trackingColor.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
-                    color: AppColors.success.withValues(alpha: 0.2),
+                    color: trackingColor.withValues(alpha: 0.2),
                   ),
                 ),
-                child: const Row(
+                child: Row(
                   children: [
                     Icon(
-                      Icons.gpp_good_rounded,
-                      color: AppColors.success,
+                      state.hasLiveFix
+                          ? Icons.gpp_good_rounded
+                          : Icons.gps_not_fixed_rounded,
+                      color: trackingColor,
                       size: 16,
                     ),
                     SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'GPS tracking active: live location is monitored for safety',
+                        trackingCopy,
                         style: TextStyle(
                           fontSize: 11,
-                          color: AppColors.success,
+                          color: trackingColor,
                           fontWeight: FontWeight.w500,
                         ),
                       ),

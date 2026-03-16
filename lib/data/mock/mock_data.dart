@@ -1,16 +1,12 @@
-// -- Shared Cab System --
-// Mock data for demo
-
 import 'package:flutter/material.dart';
-import 'package:shared_cab/models/user_model.dart';
 import 'package:shared_cab/models/location_model.dart';
-import 'package:shared_cab/models/route_deviation_model.dart';
 import 'package:shared_cab/models/recurring_ride_model.dart';
+import 'package:shared_cab/models/route_deviation_model.dart';
+import 'package:shared_cab/models/user_model.dart';
 
 class MockData {
   MockData._();
 
-  // ── Mock Users ──
   static const demoUser = User(
     id: 'user_001',
     name: 'Ranga Prasath',
@@ -36,7 +32,6 @@ class MockData {
     ],
   );
 
-  // ── Mock Locations (Chennai-based) ──
   static const locationChennaiCentral = LocationPoint(
     latitude: 13.0827,
     longitude: 80.2707,
@@ -79,11 +74,6 @@ class MockData {
     landmark: 'Velachery Junction',
   );
 
-  // Note: availableLocations and getMockMatches have been removed.
-  // Co-rider matches are now generated dynamically by DynamicMatchGenerator
-  // using the user's actual GPS route and reverse geocoding.
-
-  // ── Mock Route Deviation ──
   static RouteDeviation getMockDeviation(String tripId) {
     return RouteDeviation(
       tripId: tripId,
@@ -100,7 +90,6 @@ class MockData {
     );
   }
 
-  // ── Mock Recurring Rides ──
   static List<RecurringRide> get mockRecurringRides => [
     RecurringRide(
       id: 'rec_001',
@@ -108,7 +97,7 @@ class MockData {
       pickup: locationAnnanagar,
       dropoff: locationOMR,
       departureTime: const TimeOfDay(hour: 8, minute: 0),
-      activeDays: const [1, 2, 3, 4, 5], // Mon-Fri
+      activeDays: const [1, 2, 3, 4, 5],
       createdAt: DateTime.now().subtract(const Duration(days: 7)),
     ),
     RecurringRide(
@@ -117,7 +106,7 @@ class MockData {
       pickup: locationTNagar,
       dropoff: locationAdyar,
       departureTime: const TimeOfDay(hour: 10, minute: 0),
-      activeDays: const [6], // Sat
+      activeDays: const [6],
       createdAt: DateTime.now().subtract(const Duration(days: 3)),
     ),
   ];

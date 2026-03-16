@@ -1,7 +1,11 @@
 // -- Shared Cab System --
 // Navigation: GoRouter Setup
 
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_cab/core/services/auth_service.dart';
 import 'package:shared_cab/features/auth/login_screen.dart';
 import 'package:shared_cab/features/auth/signup_screen.dart';
 import 'package:shared_cab/features/home/home_screen.dart';
@@ -26,8 +30,34 @@ import 'package:shared_cab/features/preferences/ride_preferences_screen.dart';
 class AppRouter {
   AppRouter._();
 
+  static final _authRefresh = _AuthRouterRefreshNotifier();
+
   static final router = GoRouter(
     initialLocation: _resolveInitialLocation(),
+    refreshListenable: _authRefresh,
+    redirect: (context, state) {
+      final loggedIn = AuthService.currentUserId != null;
+      final location = state.matchedLocation;
+      final isAuthRoute = location == '/login' || location == '/signup';
+      final isQaRoute = kDebugMode && location == '/qa/trip';
+      final isQaBypass = kDebugMode && state.uri.queryParameters['qa'] == '1';
+      final isTestMatchRoute =
+          kDebugMode &&
+          location.startsWith('/matches/') &&
+          state.pathParameters['rideId'] == 'test';
+
+      if (!loggedIn &&
+          !isAuthRoute &&
+          !isQaRoute &&
+          !isQaBypass &&
+          !isTestMatchRoute) {
+        return '/login';
+      }
+      if (loggedIn && isAuthRoute) {
+        return '/home';
+      }
+      return null;
+    },
     routes: [
       // Auth
       GoRoute(
@@ -81,15 +111,16 @@ class AppRouter {
         builder: (context, state) =>
             TripStatusScreen(tripId: state.pathParameters['tripId']!),
       ),
-      GoRoute(
-        path: '/qa/trip',
-        name: 'tripDebug',
-        builder: (context, state) {
-          final riders =
-              int.tryParse(state.uri.queryParameters['riders'] ?? '3') ?? 3;
-          return TripDebugScreen(riders: riders);
-        },
-      ),
+      if (kDebugMode)
+        GoRoute(
+          path: '/qa/trip',
+          name: 'tripDebug',
+          builder: (context, state) {
+            final riders =
+                int.tryParse(state.uri.queryParameters['riders'] ?? '3') ?? 3;
+            return TripDebugScreen(riders: riders);
+          },
+        ),
       GoRoute(
         path: '/trip-complete/:tripId',
         name: 'tripComplete',
@@ -148,11 +179,27 @@ class AppRouter {
   );
 
   static String _resolveInitialLocation() {
-    final qaTrip = Uri.base.queryParameters['qaTrip'];
+    final qaTrip = kDebugMode ? Uri.base.queryParameters['qaTrip'] : null;
     if (qaTrip != null) {
       final riders = int.tryParse(qaTrip) ?? 3;
       return '/qa/trip?riders=$riders';
     }
     return '/login';
+  }
+}
+
+class _AuthRouterRefreshNotifier extends ChangeNotifier {
+  StreamSubscription<Object?>? _subscription;
+
+  _AuthRouterRefreshNotifier() {
+    _subscription = AuthService.authStateChanges.listen((_) {
+      notifyListeners();
+    });
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
   }
 }

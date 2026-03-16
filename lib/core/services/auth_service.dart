@@ -49,6 +49,7 @@ class AuthService {
       );
 
       final uid = credential.user!.uid;
+      await credential.user!.updateDisplayName(name.trim());
 
       // 2. Build user profile
       final user = User(
@@ -103,7 +104,14 @@ class AuthService {
 
       final uid = credential.user!.uid;
       _fallbackSessionUser = null;
-      return await getUserProfile(uid);
+      final user = await getUserProfile(uid);
+      final firebaseUser = credential.user;
+      if (firebaseUser != null &&
+          user.name.trim().isNotEmpty &&
+          firebaseUser.displayName != user.name.trim()) {
+        await firebaseUser.updateDisplayName(user.name.trim());
+      }
+      return user;
     } catch (error, stackTrace) {
       debugPrint('[AuthService.signIn] Firebase sign-in failed: $error');
       debugPrintStack(stackTrace: stackTrace);
@@ -145,6 +153,27 @@ class AuthService {
       email: fbUser?.email ?? '',
       gender: 'other',
     );
+  }
+
+  /// Persist profile edits to Firestore when available and keep fallback state in sync.
+  static Future<User> saveUserProfile(User user) async {
+    if (user.id.trim().isEmpty) {
+      throw StateError('User id is required to save a profile.');
+    }
+
+    if (isFirebaseReady) {
+      await _firestore.collection('users').doc(user.id).set(user.toMap());
+      final firebaseUser = currentFirebaseUser;
+      if (firebaseUser != null &&
+          firebaseUser.uid == user.id &&
+          user.name.trim().isNotEmpty &&
+          firebaseUser.displayName != user.name.trim()) {
+        await firebaseUser.updateDisplayName(user.name.trim());
+      }
+    }
+
+    _fallbackSessionUser = user;
+    return user;
   }
 
   /// Sign out.

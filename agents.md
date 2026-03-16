@@ -12,7 +12,7 @@ The primary user-facing agent managing the lifecycle of a commuter's journey.
 
 ### 2. Matching Engine Agent
 A high-throughput logistics agent that pairs riders using spatial-temporal optimization.
-- **Algorithm:** The **80/15 Spatial Overlap Rule** (≥80% route congruence within a 15-minute temporal window).
+- **Algorithm:** The **35% Spatial Overlap Standard** (≥35% route congruence within a 15-minute temporal window).
 - **Optimization Heuristics:** Route congruence → Relative time-save → Social compatibility (Rider Rating).
 - **Production Specs:** Handles dynamic fare-splitting and multi-segment savings calculations.
 
@@ -21,14 +21,14 @@ A high-throughput logistics agent that pairs riders using spatial-temporal optim
 ### 3. Dynamic Night-Mode Agent
 A contextual safety agent that modifies system behavior based on environment and local time.
 - **Triggers:** Auto-activation (21:00 - 06:00) with manual override capabilities.
-- **Safety Interventions:** Enforces same-gender matching protocols, mandates PIN verification, and initiates real-time telemetry sharing with emergency contacts.
+- **Safety Interventions:** Enforces same-gender matching protocols, mandates PIN verification, and raises in-app SOS guidance for the rider.
 
 ---
 
 ### 4. Telemetry & Safety Agent
 Monitors real-time trip data to detect anomalies and ensure rider safety.
-- **Anomaly Detection:** **Route Deviation Engine** auto-detects pathing inconsistencies (>1km off-nominal) and triggers instant SOS protocols.
-- **Emergency Hardware Integration:** One-tap SOS broadcast to emergency contacts and local LEA (Law Enforcement Agencies).
+- **Anomaly Detection:** **Route Deviation Engine** auto-detects pathing inconsistencies (>1km off-nominal) and opens the SOS workflow.
+- **Emergency Hardware Integration:** Provides one-tap emergency actions and saved-contact access inside the demo app.
 - **State Management:** `panicModeProvider`, `routeDeviationProvider`.
 
 ---

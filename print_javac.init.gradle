@@ -1,0 +1,15 @@
+gradle.projectsEvaluated {
+  allprojects { p ->
+    if (p.path == ':firebase_core') {
+      def t = p.tasks.findByName('compileDebugJavaWithJavac')
+      if (t != null) {
+        println '=== FIREBASE_CORE_JAVAC_BOOTCLASSPATH ==='
+        println((t.options.bootstrapClasspath?.files ?: []).collect { it.absolutePath }.join('\n'))
+        println '=== FIREBASE_CORE_JAVAC_CLASSPATH ==='
+        println(t.classpath.files.collect { it.absolutePath }.join('\n'))
+      } else {
+        println '=== FIREBASE_CORE_TASK_NOT_FOUND ==='
+      }
+    }
+  }
+}

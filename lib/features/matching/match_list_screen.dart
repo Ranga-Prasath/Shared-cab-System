@@ -1,26 +1,26 @@
-// -- Shared Cab System --
-// Match List Screen — real-time co-rider matching via Firestore
-// Shows incoming join requests with Accept/Decline buttons
-
 import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:shared_cab/core/matching/matching_pipeline.dart';
+import 'package:shared_cab/core/services/ride_join_flow_coordinator.dart';
 import 'package:shared_cab/core/services/ride_service.dart';
+import 'package:shared_cab/core/session/ride_session_controller.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
-import 'package:shared_cab/core/utils/night_mode_utils.dart';
-import 'package:shared_cab/core/utils/trip_pin_generator.dart';
-import 'package:shared_cab/features/trip/utils/trip_route_builder.dart';
-import 'package:shared_cab/providers/app_providers.dart';
+import 'package:shared_cab/core/utils/ride_formatters.dart';
+import 'package:shared_cab/core/utils/ride_trip_utils.dart';
+import 'package:shared_cab/models/location_model.dart';
 import 'package:shared_cab/models/ride_request_model.dart';
-import 'package:shared_cab/models/trip_model.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+import 'package:shared_cab/models/scored_match_model.dart';
+import 'package:shared_cab/providers/app_providers.dart';
 
 class MatchListScreen extends ConsumerStatefulWidget {
-  final String rideId;
-
   const MatchListScreen({super.key, required this.rideId});
+
+  final String rideId;
 
   @override
   ConsumerState<MatchListScreen> createState() => _MatchListScreenState();
@@ -28,31 +28,19 @@ class MatchListScreen extends ConsumerStatefulWidget {
 
 class _MatchListScreenState extends ConsumerState<MatchListScreen> {
   bool _initialLoading = true;
-  StreamSubscription? _myRideSub;
+  StreamSubscription<RideRequest?>? _myRideSub;
   bool _alreadyNavigated = false;
-
-  // Incoming request state
   bool _hasIncomingRequest = false;
-  String _requesterName = '';
-  String _requesterGender = '';
-  String _requesterPickup = '';
-  String _requesterDropoff = '';
-
-  // Waiting for more riders state
-  bool _isWaitingForMoreRiders = false;
-  int _acceptedRiderCount = 0;
-
-  // Store the stream so it's only created ONCE
+  RideJoinRequest? _incomingRequest;
   late final Stream<List<RideRequest>> _ridesStream;
+  final RideJoinFlowCoordinator _joinFlowCoordinator =
+      const RideJoinFlowCoordinator();
 
   @override
   void initState() {
     super.initState();
     _ridesStream = RideService.availableRidesStream();
-
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) setState(() => _initialLoading = false);
-    });
+    _initialLoading = false;
 
     _listenForMyRideUpdates();
   }
@@ -64,52 +52,24 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
     _myRideSub = RideService.rideStream(myRide.id).listen((updatedRide) {
       if (updatedRide == null || _alreadyNavigated || !mounted) return;
 
-      // Someone REQUESTED to join (needs approval)
-      if (updatedRide.status == RideStatus.requested &&
-          updatedRide.requesterId != null) {
+      final incomingRequest = updatedRide.activeJoinRequest;
+      if (incomingRequest != null) {
         setState(() {
           _hasIncomingRequest = true;
-          _requesterName = updatedRide.requesterName ?? 'A rider';
-          _requesterGender = updatedRide.requesterGender ?? '';
-          _requesterPickup = updatedRide.requesterPickup ?? '';
-          _requesterDropoff = updatedRide.requesterDropoff ?? '';
+          _incomingRequest = incomingRequest;
         });
         return;
       }
 
-      // Request was declined — clear the request UI
-      if (updatedRide.status == RideStatus.pending) {
+      if (_hasIncomingRequest) {
         setState(() {
           _hasIncomingRequest = false;
-          _requesterName = '';
-          _requesterGender = '';
-          _requesterPickup = '';
-          _requesterDropoff = '';
-          // Keep waiting state if already in it
+          _incomingRequest = null;
         });
-        return;
       }
 
-<<<<<<< HEAD
-      // Accepted and WAITING for more riders
-      if (updatedRide.status == RideStatus.acceptedWaiting) {
-        setState(() {
-          _isWaitingForMoreRiders = true;
-          _acceptedRiderCount = updatedRide.coRiderIds.length;
-          _hasIncomingRequest = false;
-          _requesterName = '';
-          _requesterId = '';
-        });
-        return;
-      }
-
-      // Ride was matched — navigate to trip
-      if (updatedRide.status == RideStatus.matched &&
-=======
-      // Host proceeds ride after accepting co-rider(s)
       if (updatedRide.readyToProceed &&
           updatedRide.status == RideStatus.matched &&
->>>>>>> 80114ce (Polish trip routing and demo verification)
           updatedRide.coRiderIds.isNotEmpty) {
         _alreadyNavigated = true;
         _navigateToTrip(updatedRide);
@@ -119,22 +79,23 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
 
   Future<void> _acceptRequest() async {
     final myRide = ref.read(currentRideRequestProvider);
-    if (myRide == null) return;
+    final incomingRequest = _incomingRequest;
+    if (myRide == null || incomingRequest == null) return;
 
     final waitForAnotherRider = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('After accepting this rider'),
         content: const Text(
           'Choose whether to wait for one more rider or start the trip now.',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
+            onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('Wait for Another Rider'),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, false),
+            onPressed: () => Navigator.pop(dialogContext, false),
             child: const Text('Proceed Ride'),
           ),
         ],
@@ -143,55 +104,29 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
 
     if (waitForAnotherRider == null) return;
 
-    setState(() => _hasIncomingRequest = false);
-<<<<<<< HEAD
-
-    // Show choice: Wait for more riders or Proceed now
-    final choice = await showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Rider accepted! 🎉'),
-        content: const Text(
-          'Do you want to wait for more riders to join '
-          'or start the ride now?',
-        ),
-        actions: [
-          OutlinedButton.icon(
-            onPressed: () => Navigator.pop(ctx, 'wait'),
-            icon: const Icon(Icons.hourglass_top_rounded, size: 18),
-            label: const Text('Wait for more'),
-          ),
-          ElevatedButton.icon(
-            onPressed: () => Navigator.pop(ctx, 'proceed'),
-            icon: const Icon(Icons.directions_car_rounded, size: 18),
-            label: const Text('Proceed now'),
-          ),
-        ],
-      ),
-    );
-
-    if (choice == 'wait') {
-      await RideService.acceptRequest(myRide.id, waitForMore: true);
-      // Stream listener will detect 'acceptedWaiting' and update UI
-    } else {
-      await RideService.acceptRequest(myRide.id, waitForMore: false);
-      // Stream listener will detect 'matched' and navigate
-    }
-  }
-
-  void _proceedNow() async {
-    final myRide = ref.read(currentRideRequestProvider);
-    if (myRide == null) return;
-    await RideService.proceedRide(myRide.id);
-    // Stream listener will detect 'matched' and navigate
-=======
-    await RideService.acceptRequest(
+    final accepted = await RideService.acceptRequest(
       myRide.id,
+      requesterId: incomingRequest.requesterId,
       waitForAnotherRider: waitForAnotherRider,
     );
+    if (!mounted) return;
 
-    if (waitForAnotherRider && mounted) {
+    if (!accepted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('That request is no longer pending.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _hasIncomingRequest = false;
+      _incomingRequest = null;
+    });
+
+    if (waitForAnotherRider) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Accepted. Waiting for another rider request...'),
@@ -199,50 +134,109 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
         ),
       );
     }
->>>>>>> 80114ce (Polish trip routing and demo verification)
   }
 
-  void _declineRequest() async {
+  Future<void> _declineRequest() async {
     final myRide = ref.read(currentRideRequestProvider);
-    if (myRide == null) return;
+    final incomingRequest = _incomingRequest;
+    if (myRide == null || incomingRequest == null) return;
+
+    final declined = await RideService.declineRequest(
+      myRide.id,
+      requesterId: incomingRequest.requesterId,
+    );
+    if (!mounted) return;
+
+    if (!declined) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('That request is no longer pending.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
 
     setState(() {
       _hasIncomingRequest = false;
-      _requesterName = '';
+      _incomingRequest = null;
     });
-    await RideService.declineRequest(myRide.id);
   }
 
   void _navigateToTrip(RideRequest ride) {
-    final currentUser = ref.read(effectiveCurrentUserProvider);
-    final distanceKm = ride.pickup.distanceTo(ride.dropoff);
-    final fareEstimate = (distanceKm * 22).clamp(120, 900).toDouble();
-
-    final trip = Trip(
-      id: 'trip_${DateTime.now().millisecondsSinceEpoch}',
-      matchId: 'shared_${ride.id}',
-      riderIds: [currentUser.id, ...ride.coRiderIds],
-      status: TripStatus.waitingForPickup,
-      startTime: DateTime.now(),
-      isNightTrip: ride.isNightRide,
-      safeArrivalPin: generateTripPin(),
-      farePerPerson: fareEstimate / 2,
-      tripDistanceKm: distanceKm,
+    final trip = RideSessionController.startSharedTrip(
+      RideSessionStore.widget(ref),
+      ride: ride,
     );
 
-    ref.read(panicModeProvider.notifier).state = false;
-    ref.read(activeTripProvider.notifier).state = trip;
+    if (!mounted) return;
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('🎉 Ride shared! Heading to trip...'),
-          backgroundColor: AppColors.success,
-          duration: Duration(seconds: 2),
-        ),
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Ride shared! Heading to trip...'),
+        backgroundColor: AppColors.success,
+        duration: Duration(seconds: 2),
+      ),
+    );
+    context.goNamed('tripStatus', pathParameters: {'tripId': trip.id});
+  }
+
+  void _startDirectRide() {
+    final currentRideRequest =
+        ref.read(currentRideRequestProvider) ?? _buildDemoRideForQa();
+    if (currentRideRequest == null) return;
+
+    final directRide = RideTripUtils.prepareRideForPublication(
+      currentRideRequest,
+      directRide: true,
+    );
+    ref.read(currentRideRequestProvider.notifier).state = directRide;
+
+    if (widget.rideId != 'test') {
+      unawaited(
+        RideService.updateRideStatus(
+          directRide.id,
+          RideStatus.active,
+        ).catchError((_) {
+          return;
+        }),
       );
-      context.goNamed('tripStatus', pathParameters: {'tripId': trip.id});
     }
+
+    final trip = RideSessionController.startDirectTrip(
+      RideSessionStore.widget(ref),
+      ride: directRide,
+      riderId: ref.read(effectiveCurrentUserProvider).id,
+    );
+    if (kDebugMode && widget.rideId == 'test') {
+      context.go('/trip/${trip.id}?qa=1');
+      return;
+    }
+    context.goNamed('tripStatus', pathParameters: {'tripId': trip.id});
+  }
+
+  RideRequest? _buildDemoRideForQa() {
+    if (!kDebugMode || widget.rideId != 'test') return null;
+
+    final currentUser = ref.read(effectiveCurrentUserProvider);
+    return RideRequest(
+      id: 'qa_demo_ride',
+      userId: currentUser.id,
+      userName: currentUser.name,
+      userGender: currentUser.gender,
+      pickup: const LocationPoint(
+        latitude: 11.0150,
+        longitude: 78.9550,
+        address: 'Codex Test Origin',
+      ),
+      dropoff: const LocationPoint(
+        latitude: 10.8450,
+        longitude: 79.2050,
+        address: 'Codex Test Terminal',
+      ),
+      departureTime: DateTime.now().add(const Duration(minutes: 1)),
+      createdAt: DateTime.now(),
+    );
   }
 
   @override
@@ -251,320 +245,13 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
     super.dispose();
   }
 
-  bool _isAlongMyRoute(RideRequest otherRide) {
-    final myRide = ref.read(currentRideRequestProvider);
-    if (myRide == null) return true;
-    return TripRouteBuilder.routesShareCorridor(
-      _routePointsForRide(myRide),
-      _routePointsForRide(otherRide),
-    );
-  }
-
-  double _calculateOverlap(RideRequest otherRide) {
-    final myRide = ref.read(currentRideRequestProvider);
-    if (myRide == null) return 0;
-    return TripRouteBuilder.routeOverlapPercent(
-      _routePointsForRide(myRide),
-      _routePointsForRide(otherRide),
-    ).clamp(0, 100).toDouble();
-  }
-
-  List<LatLng> _routePointsForRide(RideRequest ride) {
-    if (ride.routePath.length >= 2) {
-      return ride.routePath
-          .map((point) => LatLng(point.latitude, point.longitude))
-          .toList();
-    }
-
-    return [
-      LatLng(ride.pickup.latitude, ride.pickup.longitude),
-      LatLng(ride.dropoff.latitude, ride.dropoff.longitude),
-    ];
-  }
-
-  void _sendRequest(RideRequest otherRide) async {
-    final currentUser = ref.read(effectiveCurrentUserProvider);
-    final myRide = ref.read(currentRideRequestProvider);
-    final router = GoRouter.of(context);
-
-    try {
-      await RideService.requestToJoin(
-        rideId: otherRide.id,
-        requesterId: currentUser.id,
-        requesterName: currentUser.name,
-        requesterGender: currentUser.gender,
-        requesterPickup: myRide?.pickup.address ?? '',
-        requesterDropoff: myRide?.dropoff.address ?? '',
-        requesterPickupLat: myRide?.pickup.latitude,
-        requesterPickupLng: myRide?.pickup.longitude,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to send request: $e')));
-      return;
-    }
-
-    if (!mounted) return;
-
-<<<<<<< HEAD
-    // Create a notifier for the dynamic status of the dialog
-    final rideStatusNotifier = ValueNotifier<RideStatus>(RideStatus.requested);
-    
-    // Track whether dialog is still open
-=======
->>>>>>> 80114ce (Polish trip routing and demo verification)
-    bool dialogOpen = false;
-
-    late final StreamSubscription sub;
-    sub = RideService.rideStream(otherRide.id).listen((updatedRide) {
-      if (updatedRide == null || !mounted) return;
-<<<<<<< HEAD
-      
-      rideStatusNotifier.value = updatedRide.status;
-=======
-      final amJoined = updatedRide.coRiderIds.contains(currentUser.id);
->>>>>>> 80114ce (Polish trip routing and demo verification)
-
-      if (updatedRide.readyToProceed &&
-          updatedRide.status == RideStatus.matched &&
-          amJoined) {
-        sub.cancel();
-        _alreadyNavigated = true;
-
-        final distanceKm = otherRide.pickup.distanceTo(otherRide.dropoff);
-        final fareEstimate = (distanceKm * 22).clamp(120, 900).toDouble();
-
-        final trip = Trip(
-          id: 'trip_${DateTime.now().millisecondsSinceEpoch}',
-          matchId: 'shared_${otherRide.id}',
-          riderIds: [currentUser.id, otherRide.userId],
-          status: TripStatus.waitingForPickup,
-          startTime: DateTime.now(),
-          isNightTrip: myRide?.isNightRide ?? isNightDateTime(DateTime.now()),
-          safeArrivalPin: generateTripPin(),
-          farePerPerson: fareEstimate / 2,
-          tripDistanceKm: distanceKm,
-        );
-
-        ref.read(panicModeProvider.notifier).state = false;
-        ref.read(activeTripProvider.notifier).state = trip;
-        router.go('/trip/${trip.id}');
-      }
-
-      if (updatedRide.waitForAnotherRider &&
-          updatedRide.status == RideStatus.pending &&
-          amJoined) {
-        sub.cancel();
-        if (dialogOpen && mounted) {
-          dialogOpen = false;
-          Navigator.of(context).pop();
-        }
-        _showWaitingForAnotherRiderDialog(
-          rideId: otherRide.id,
-          hostName: otherRide.userName,
-          myId: currentUser.id,
-        );
-      }
-
-      if (updatedRide.status == RideStatus.declined) {
-        sub.cancel();
-        if (dialogOpen && mounted) {
-          dialogOpen = false;
-          Navigator.of(context).pop();
-        }
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('${otherRide.userName} declined your request.'),
-              backgroundColor: AppColors.danger,
-            ),
-          );
-        }
-      }
-    });
-
-    dialogOpen = true;
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => PopScope(
-        canPop: false,
-        child: ValueListenableBuilder<RideStatus>(
-          valueListenable: rideStatusNotifier,
-          builder: (context, status, child) {
-            final isWaiting = status == RideStatus.acceptedWaiting;
-            return AlertDialog(
-              title: Row(
-                children: [
-                  const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Text(isWaiting ? 'Waiting for another rider' : 'Waiting for approval'),
-                ],
-              ),
-              content: Text(
-                isWaiting 
-                    ? 'Your request was accepted! ${otherRide.userName.isNotEmpty ? otherRide.userName : "The rider"} is waiting for another rider to join the trip...'
-                    : '${otherRide.userName.isNotEmpty ? otherRide.userName : "The rider"} is reviewing your request...\n\nYou will be notified when they accept or decline.',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    // If we cancel while acceptedWaiting, we need to leave the ride instead of just closing dialog
-                    if (isWaiting) {
-                      RideService.leaveRide(otherRide.id);
-                    }
-                    sub.cancel();
-                    dialogOpen = false;
-                    Navigator.of(ctx).pop();
-                  },
-                  child: Text(isWaiting ? 'Cancel Ride' : 'Cancel Request'),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
-    ).then((_) {
-      dialogOpen = false;
-      sub.cancel();
-    });
-  }
-
-  void _showWaitingForAnotherRiderDialog({
-    required String rideId,
-    required String hostName,
-    required String myId,
-  }) {
-    bool dialogOpen = false;
-    final router = GoRouter.of(context);
-
-    late final StreamSubscription sub;
-    sub = RideService.rideStream(rideId).listen((updatedRide) {
-      if (updatedRide == null || !mounted) return;
-      final amJoined = updatedRide.coRiderIds.contains(myId);
-
-      if (!amJoined) {
-        sub.cancel();
-        if (dialogOpen) {
-          dialogOpen = false;
-          Navigator.of(context).pop();
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('You left the shared ride.'),
-            backgroundColor: AppColors.warning,
-          ),
-        );
-        return;
-      }
-
-      if (updatedRide.readyToProceed &&
-          updatedRide.status == RideStatus.matched) {
-        sub.cancel();
-        _alreadyNavigated = true;
-
-        final distanceKm = updatedRide.pickup.distanceTo(updatedRide.dropoff);
-        final fareEstimate = (distanceKm * 22).clamp(120, 900).toDouble();
-        final currentUser = ref.read(effectiveCurrentUserProvider);
-
-        final trip = Trip(
-          id: 'trip_${DateTime.now().millisecondsSinceEpoch}',
-          matchId: 'shared_${updatedRide.id}',
-          riderIds: [
-            currentUser.id,
-            updatedRide.userId,
-            ...updatedRide.coRiderIds,
-          ],
-          status: TripStatus.waitingForPickup,
-          startTime: DateTime.now(),
-          isNightTrip: updatedRide.isNightRide,
-          safeArrivalPin: generateTripPin(),
-          farePerPerson: fareEstimate / 2,
-          tripDistanceKm: distanceKm,
-        );
-
-        ref.read(panicModeProvider.notifier).state = false;
-        ref.read(activeTripProvider.notifier).state = trip;
-
-        if (dialogOpen && mounted) {
-          dialogOpen = false;
-          Navigator.of(context).pop();
-        }
-        router.go('/trip/${trip.id}');
-      }
-    });
-
-    dialogOpen = true;
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => PopScope(
-        canPop: false,
-        child: AlertDialog(
-          title: const Text('Waiting for another rider'),
-          content: Text(
-            '${hostName.isNotEmpty ? hostName : "Host"} accepted you and chose to wait for one more rider.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () async {
-                final navigator = Navigator.of(ctx);
-                await RideService.cancelJoinedRide(rideId);
-                if (!mounted) return;
-                dialogOpen = false;
-                navigator.pop();
-              },
-              child: const Text('Cancel Ride'),
-            ),
-          ],
-        ),
-      ),
-    ).then((_) {
-      dialogOpen = false;
-      sub.cancel();
-    });
-  }
-
-  void _startDirectRide() {
-    final currentRideRequest = ref.read(currentRideRequestProvider);
-    final currentUser = ref.read(effectiveCurrentUserProvider);
-    if (currentRideRequest == null) return;
-
-    final distanceKm = currentRideRequest.pickup.distanceTo(
-      currentRideRequest.dropoff,
-    );
-    final fareEstimate = (distanceKm * 22).clamp(120, 900).toDouble();
-
-    final trip = Trip(
-      id: 'trip_${DateTime.now().millisecondsSinceEpoch}',
-      matchId: 'direct_${currentRideRequest.id}',
-      riderIds: [currentUser.id],
-      status: TripStatus.waitingForPickup,
-      startTime: DateTime.now(),
-      isNightTrip: currentRideRequest.isNightRide,
-      safeArrivalPin: generateTripPin(),
-      farePerPerson: fareEstimate,
-      tripDistanceKm: distanceKm,
-    );
-
-    ref.read(panicModeProvider.notifier).state = false;
-    ref.read(activeTripProvider.notifier).state = trip;
-    context.goNamed('tripStatus', pathParameters: {'tripId': trip.id});
-  }
-
   @override
   Widget build(BuildContext context) {
     final isNight = ref.watch(effectiveNightModeProvider);
+    final sameGenderOnly = ref.watch(sameGenderOnlyProvider);
     final currentUser = ref.watch(effectiveCurrentUserProvider);
+    final myRide = ref.watch(currentRideRequestProvider);
+    final ridePreferences = ref.watch(ridePreferencesProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -576,25 +263,15 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
       ),
       body: Column(
         children: [
-          // ── Incoming request banner (Accept / Decline) ──
-          if (_hasIncomingRequest)
+          if (_hasIncomingRequest && _incomingRequest != null)
             _IncomingRequestBanner(
-              requesterName: _requesterName,
-              requesterGender: _requesterGender,
-              requesterPickup: _requesterPickup,
-              requesterDropoff: _requesterDropoff,
+              requesterName: _incomingRequest!.requesterName,
+              requesterGender: _incomingRequest!.requesterGender,
+              requesterPickup: _incomingRequest!.requesterPickup,
+              requesterDropoff: _incomingRequest!.requesterDropoff,
               onAccept: _acceptRequest,
               onDecline: _declineRequest,
             ).animate().fadeIn().slideY(begin: -0.3, end: 0),
-
-          // ── Waiting for more riders banner ──
-          if (_isWaitingForMoreRiders && !_hasIncomingRequest)
-            _WaitingForMoreBanner(
-              acceptedCount: _acceptedRiderCount,
-              onProceed: _proceedNow,
-            ).animate().fadeIn().slideY(begin: -0.3, end: 0),
-
-          // ── Main content ──
           Expanded(
             child: _initialLoading
                 ? _buildSearching(context)
@@ -609,12 +286,26 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
                         return Center(child: Text('Error: ${snapshot.error}'));
                       }
 
-                      final allRides = snapshot.data ?? [];
-                      final myId = currentUser.id;
+                      if (myRide == null) {
+                        return _buildResults(
+                          context,
+                          const <ScoredMatch>[],
+                          isNight,
+                        );
+                      }
 
-                      final matchingRides = allRides
-                          .where((r) => r.userId != myId && _isAlongMyRoute(r))
-                          .toList();
+                      final matchingRides = MatchingPipeline.evaluate(
+                        candidates: snapshot.data ?? const [],
+                        context: MatchContext(
+                          currentUserId: currentUser.id,
+                          currentUserGender: currentUser.gender,
+                          riderPreferences: ridePreferences,
+                          isNightMode: isNight,
+                          sameGenderOnly: sameGenderOnly,
+                          now: DateTime.now(),
+                          referenceRide: myRide,
+                        ),
+                      );
 
                       return _buildResults(context, matchingRides, isNight);
                     },
@@ -655,10 +346,10 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
 
   Widget _buildResults(
     BuildContext context,
-    List<RideRequest> rides,
+    List<ScoredMatch> matches,
     bool isNight,
   ) {
-    if (rides.isEmpty) {
+    if (matches.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -670,7 +361,7 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
                     size: 64,
                     color: AppColors.primary,
                   )
-                  .animate(onPlay: (c) => c.repeat())
+                  .animate(onPlay: (controller) => controller.repeat())
                   .shimmer(
                     duration: 1500.ms,
                     color: AppColors.primary.withValues(alpha: 0.3),
@@ -685,7 +376,7 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
               Text(
                 'Your ride is published and visible to others.\n'
                 'This screen will update automatically when someone '
-                'on the same route requests to join!',
+                'on the same route requests to join.',
                 style: Theme.of(context).textTheme.bodySmall,
                 textAlign: TextAlign.center,
               ),
@@ -715,7 +406,7 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
 
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: rides.length + 1,
+      itemCount: matches.length + 1,
       itemBuilder: (context, index) {
         if (index == 0) {
           return Padding(
@@ -744,7 +435,7 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '${rides.length} co-rider${rides.length > 1 ? 's' : ''} found!',
+                          '${matches.length} co-rider${matches.length > 1 ? 's' : ''} found!',
                           style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w700,
@@ -752,7 +443,7 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
                           ),
                         ),
                         const Text(
-                          'Real-time • Updates as new riders join',
+                          'Real-time updates as new riders join',
                           style: TextStyle(color: Colors.white70, fontSize: 12),
                         ),
                       ],
@@ -764,14 +455,15 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
           );
         }
 
-        final ride = rides[index - 1];
-        final overlap = _calculateOverlap(ride);
-
+        final match = matches[index - 1];
         return _RealMatchCard(
-              ride: ride,
-              overlapPercent: overlap,
+              match: match,
               isNight: isNight,
-              onAccept: () => _sendRequest(ride),
+              onAccept: () => _joinFlowCoordinator.start(
+                context: context,
+                ref: ref,
+                hostRide: match.ride,
+              ),
             )
             .animate()
             .fadeIn(delay: (200 * index).ms)
@@ -781,24 +473,22 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
   }
 }
 
-// ── Incoming Request Banner (Accept / Decline) ──
-
 class _IncomingRequestBanner extends StatelessWidget {
+  const _IncomingRequestBanner({
+    required this.requesterName,
+    required this.requesterGender,
+    required this.requesterPickup,
+    required this.requesterDropoff,
+    required this.onAccept,
+    required this.onDecline,
+  });
+
   final String requesterName;
   final String requesterGender;
   final String requesterPickup;
   final String requesterDropoff;
   final VoidCallback onAccept;
   final VoidCallback onDecline;
-
-  const _IncomingRequestBanner({
-    required this.requesterName,
-    this.requesterGender = '',
-    this.requesterPickup = '',
-    this.requesterDropoff = '',
-    required this.onAccept,
-    required this.onDecline,
-  });
 
   @override
   Widget build(BuildContext context) {
@@ -829,16 +519,13 @@ class _IncomingRequestBanner extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
           Row(
             children: [
               CircleAvatar(
                 radius: 22,
                 backgroundColor: AppColors.primary,
                 child: Text(
-                  requesterName.isNotEmpty
-                      ? requesterName[0].toUpperCase()
-                      : '?',
+                  RideFormatters.safeInitial(requesterName),
                   style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w700,
@@ -852,7 +539,7 @@ class _IncomingRequestBanner extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      '🔔 Ride Request!',
+                      'Ride Request',
                       style: TextStyle(
                         fontWeight: FontWeight.w800,
                         fontSize: 16,
@@ -861,7 +548,7 @@ class _IncomingRequestBanner extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       '$requesterName wants to share your ride',
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: AppColors.textSecondary,
                         fontSize: 14,
                       ),
@@ -871,10 +558,7 @@ class _IncomingRequestBanner extends StatelessWidget {
               ),
             ],
           ),
-
           const SizedBox(height: 12),
-
-          // Requester details: gender + route
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -900,8 +584,9 @@ class _IncomingRequestBanner extends StatelessWidget {
                         const SizedBox(width: 8),
                         Text(
                           'Gender: $requesterGender',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(fontWeight: FontWeight.w600),
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ],
                     ),
@@ -918,8 +603,9 @@ class _IncomingRequestBanner extends StatelessWidget {
                       Expanded(
                         child: Text(
                           requesterPickup,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(fontWeight: FontWeight.w600),
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -950,8 +636,9 @@ class _IncomingRequestBanner extends StatelessWidget {
                       Expanded(
                         child: Text(
                           requesterDropoff,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(fontWeight: FontWeight.w600),
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -961,10 +648,7 @@ class _IncomingRequestBanner extends StatelessWidget {
               ],
             ),
           ),
-
           const SizedBox(height: 16),
-
-          // Accept / Decline buttons
           Row(
             children: [
               Expanded(
@@ -1000,127 +684,30 @@ class _IncomingRequestBanner extends StatelessWidget {
   }
 }
 
-// ── Waiting for More Riders Banner ──
-
-class _WaitingForMoreBanner extends StatelessWidget {
-  final int acceptedCount;
-  final VoidCallback onProceed;
-
-  const _WaitingForMoreBanner({
-    required this.acceptedCount,
-    required this.onProceed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            AppColors.success.withValues(alpha: 0.12),
-            AppColors.primary.withValues(alpha: 0.08),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: AppColors.success.withValues(alpha: 0.3),
-          width: 2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.success.withValues(alpha: 0.1),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: AppColors.success.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(
-                  Icons.groups_rounded,
-                  color: AppColors.success,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      '⏳ Waiting for more riders...',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 16,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '$acceptedCount rider${acceptedCount > 1 ? 's' : ''} accepted so far',
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: onProceed,
-              icon: const Icon(Icons.directions_car_rounded, size: 18),
-              label: const Text('Proceed Now — Start Ride'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.success,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Real Match Card ──
-
 class _RealMatchCard extends StatelessWidget {
-  final RideRequest ride;
-  final double overlapPercent;
-  final bool isNight;
-  final VoidCallback onAccept;
-
   const _RealMatchCard({
-    required this.ride,
-    required this.overlapPercent,
+    required this.match,
     required this.isNight,
     required this.onAccept,
   });
 
+  final ScoredMatch match;
+  final bool isNight;
+  final VoidCallback onAccept;
+
   @override
   Widget build(BuildContext context) {
-    final distanceKm = ride.pickup.distanceTo(ride.dropoff);
-    final fareEstimate = (distanceKm * 22).clamp(120, 900).toDouble();
-    final sharedFare = fareEstimate / 2;
+    final ride = match.ride;
+    final distanceKm = RideTripUtils.rideDistanceKm(ride);
+    final projectedRiderCount =
+        RideTripUtils.canonicalRiderIds(ride).length + 1;
+    final fareEstimate = RideTripUtils.estimateTotalFare(distanceKm);
+    final sharedFare = RideTripUtils.farePerRider(
+      totalFare: fareEstimate,
+      riderCount: projectedRiderCount,
+    );
+    final savingsPercent = ((1 - (1 / projectedRiderCount)) * 100).round();
+    final matchSummary = match.reasons.take(2).join(' • ');
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
@@ -1141,7 +728,7 @@ class _RealMatchCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    '${overlapPercent.toStringAsFixed(0)}% overlap',
+                    '${match.routeOverlapPercent.toStringAsFixed(0)}% overlap',
                     style: const TextStyle(
                       color: AppColors.success,
                       fontWeight: FontWeight.w700,
@@ -1151,7 +738,7 @@ class _RealMatchCard extends StatelessWidget {
                 ),
                 const Spacer(),
                 Text(
-                  _timeAgo(ride.createdAt),
+                  RideFormatters.timeAgo(ride.createdAt),
                   style: Theme.of(
                     context,
                   ).textTheme.bodySmall?.copyWith(color: AppColors.textMuted),
@@ -1167,9 +754,7 @@ class _RealMatchCard extends StatelessWidget {
                       ? AppColors.nightAccent
                       : AppColors.primary,
                   child: Text(
-                    ride.userName.isNotEmpty
-                        ? ride.userName[0].toUpperCase()
-                        : '?',
+                    RideFormatters.safeInitial(ride.userName),
                     style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w700,
@@ -1189,7 +774,7 @@ class _RealMatchCard extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        '${ride.pickup.address} → ${ride.dropoff.address}',
+                        '${ride.pickup.address} -> ${ride.dropoff.address}',
                         style: Theme.of(context).textTheme.bodySmall,
                         overflow: TextOverflow.ellipsis,
                         maxLines: 1,
@@ -1199,6 +784,16 @@ class _RealMatchCard extends StatelessWidget {
                 ),
               ],
             ),
+            if (matchSummary.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(
+                matchSummary,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
             const Divider(height: 24),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1232,9 +827,9 @@ class _RealMatchCard extends StatelessWidget {
                     ),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Text(
-                    'Save 50%',
-                    style: TextStyle(
+                  child: Text(
+                    'Save $savingsPercent%',
+                    style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w700,
                       fontSize: 13,
@@ -1256,13 +851,5 @@ class _RealMatchCard extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  String _timeAgo(DateTime time) {
-    final diff = DateTime.now().difference(time);
-    if (diff.inMinutes < 1) return 'just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    return '${diff.inDays}d ago';
   }
 }

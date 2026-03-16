@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:shared_cab/core/services/auth_service.dart';
 import 'package:shared_cab/core/services/ride_service.dart';
+import 'package:shared_cab/core/session/ride_session_controller.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
 import 'package:shared_cab/models/ride_request_model.dart';
 import 'package:shared_cab/models/route_deviation_model.dart';
@@ -447,9 +448,7 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
     final reachedPickup = _visualState.value.segmentIndex >= _pickupRouteIndex;
 
     if (reachedPickup && trip.status == TripStatus.waitingForPickup) {
-      ref.read(activeTripProvider.notifier).state = trip.copyWith(
-        status: TripStatus.inProgress,
-      );
+      RideSessionController.markTripInProgress(RideSessionStore.widget(ref));
       if (_isPrimaryTripDriver && _syncRideId != null) {
         unawaited(
           RideService.updateRideStatus(_syncRideId!, RideStatus.active),
@@ -525,9 +524,7 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
       cabPosition: destination,
     );
 
-    ref.read(activeTripProvider.notifier).state = trip.copyWith(
-      status: TripStatus.arrivedDestination,
-    );
+    RideSessionController.markTripArrived(RideSessionStore.widget(ref));
     ref.read(routeDeviationProvider.notifier).state = null;
 
     if (destination != null) {
@@ -692,21 +689,15 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
     }
 
     if (rideUpdate.status == RideStatus.active) {
-      final currentTrip = ref.read(activeTripProvider);
-      if (currentTrip != null &&
-          currentTrip.status == TripStatus.waitingForPickup) {
-        ref.read(activeTripProvider.notifier).state = currentTrip.copyWith(
-          status: TripStatus.inProgress,
-        );
-      }
+      RideSessionController.syncRemoteRideStatus(
+        RideSessionStore.widget(ref),
+        rideUpdate.status,
+      );
     } else if (rideUpdate.status == RideStatus.completed) {
-      final currentTrip = ref.read(activeTripProvider);
-      if (currentTrip != null &&
-          currentTrip.status != TripStatus.arrivedDestination) {
-        ref.read(activeTripProvider.notifier).state = currentTrip.copyWith(
-          status: TripStatus.arrivedDestination,
-        );
-      }
+      RideSessionController.syncRemoteRideStatus(
+        RideSessionStore.widget(ref),
+        rideUpdate.status,
+      );
     }
   }
 
@@ -827,23 +818,7 @@ class _TripStatusScreenState extends ConsumerState<TripStatusScreen>
 
   void _alertContacts() {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Row(
-          children: [
-            Icon(Icons.check_circle, color: Colors.white, size: 20),
-            SizedBox(width: 10),
-            Expanded(
-              child: Text('Emergency contacts alerted with your live location'),
-            ),
-          ],
-        ),
-        backgroundColor: AppColors.success,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        duration: const Duration(seconds: 3),
-      ),
-    );
+    context.pushNamed('panic');
   }
 
   List<Polyline> _buildPolylines({
@@ -1471,7 +1446,7 @@ class _DeviationBanner extends StatelessWidget {
                   onPressed: onAlertContacts,
                   icon: const Icon(Icons.sos_rounded, size: 16),
                   label: const Text(
-                    'Alert Contacts',
+                    'Open SOS',
                     style: TextStyle(fontSize: 12),
                   ),
                   style: ElevatedButton.styleFrom(

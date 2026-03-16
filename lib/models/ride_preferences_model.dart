@@ -36,6 +36,28 @@ class RidePreferences {
     );
   }
 
+  Map<String, dynamic> toMap() {
+    return {
+      'acPreferred': acPreferred,
+      'musicAllowed': musicAllowed,
+      'petFriendly': petFriendly,
+      'extraLuggage': extraLuggage,
+      'silentRide': silentRide,
+      'windowSeat': windowSeat,
+    };
+  }
+
+  factory RidePreferences.fromMap(Map<String, dynamic> map) {
+    return RidePreferences(
+      acPreferred: map['acPreferred'] as bool? ?? true,
+      musicAllowed: map['musicAllowed'] as bool? ?? true,
+      petFriendly: map['petFriendly'] as bool? ?? false,
+      extraLuggage: map['extraLuggage'] as bool? ?? false,
+      silentRide: map['silentRide'] as bool? ?? false,
+      windowSeat: map['windowSeat'] as bool? ?? false,
+    );
+  }
+
   /// Returns a list of active preference labels for display as tags
   List<String> get activeTags {
     final tags = <String>[];
