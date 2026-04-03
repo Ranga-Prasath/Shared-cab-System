@@ -1,0 +1,29 @@
+{
+    "project_info": {
+        "project_number": "974731290007",
+        "project_id": "shared-cab-2",
+        "storage_bucket": "shared-cab-2.firebasestorage.app"
+    },
+    "client": [
+        {
+            "client_info": {
+                "mobilesdk_app_id": "1:974731290007:android:131d95aed4c71344c1d0d2",
+                "android_client_info": {
+                    "package_name": "com.example.shared_cab"
+                }
+            },
+            "oauth_client": [],
+            "api_key": [
+                {
+                    "current_key": "AIzaSyAiBJp4xpWfZkGTA2VJepcOuuIUSqkhIWM"
+                }
+            ],
+            "services": {
+                "appinvite_service": {
+                    "other_platform_oauth_client": []
+                }
+            }
+        }
+    ],
+    "configuration_version": "1"
+}
