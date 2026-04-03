@@ -2,6 +2,7 @@
 // Core model: Ride Request
 
 import 'package:shared_cab/models/location_model.dart';
+import 'package:shared_cab/core/constants/app_constants.dart';
 import 'package:shared_cab/core/utils/night_mode_utils.dart';
 import 'package:shared_cab/models/ride_preferences_model.dart';
 
@@ -15,7 +16,7 @@ enum RideStatus {
   cancelled,
 }
 
-enum RideJoinRequestStatus { pending, accepted, declined, cancelled }
+enum RideJoinRequestStatus { pending, accepted, declined, cancelled, expired }
 
 class RideJoinRequest {
   final String requesterId;
@@ -28,8 +29,12 @@ class RideJoinRequest {
   final RideJoinRequestStatus status;
   final DateTime requestedAt;
   final DateTime updatedAt;
+  final DateTime statusUpdatedAt;
+  final DateTime? requestExpiryAt;
   final DateTime? resolvedAt;
   final String? statusReason;
+  final String? requestClientReasonCode;
+  final int flowVersion;
 
   const RideJoinRequest({
     required this.requesterId,
@@ -42,9 +47,20 @@ class RideJoinRequest {
     this.status = RideJoinRequestStatus.pending,
     required this.requestedAt,
     required this.updatedAt,
+    DateTime? statusUpdatedAt,
+    this.requestExpiryAt,
     this.resolvedAt,
     this.statusReason,
-  });
+    this.requestClientReasonCode,
+    this.flowVersion = AppConstants.requestFlowVersion,
+  }) : statusUpdatedAt = statusUpdatedAt ?? updatedAt;
+
+  bool isExpiredAt(DateTime now) {
+    if (status != RideJoinRequestStatus.pending) return false;
+    final expiry = requestExpiryAt;
+    if (expiry == null) return false;
+    return now.isAfter(expiry);
+  }
 
   RideJoinRequest copyWith({
     String? requesterId,
@@ -57,10 +73,16 @@ class RideJoinRequest {
     RideJoinRequestStatus? status,
     DateTime? requestedAt,
     DateTime? updatedAt,
+    DateTime? statusUpdatedAt,
+    DateTime? requestExpiryAt,
     DateTime? resolvedAt,
     String? statusReason,
+    String? requestClientReasonCode,
+    int? flowVersion,
     bool clearResolvedAt = false,
     bool clearStatusReason = false,
+    bool clearRequestExpiryAt = false,
+    bool clearRequestClientReasonCode = false,
   }) {
     return RideJoinRequest(
       requesterId: requesterId ?? this.requesterId,
@@ -73,10 +95,18 @@ class RideJoinRequest {
       status: status ?? this.status,
       requestedAt: requestedAt ?? this.requestedAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      statusUpdatedAt: statusUpdatedAt ?? this.statusUpdatedAt,
+      requestExpiryAt: clearRequestExpiryAt
+          ? null
+          : (requestExpiryAt ?? this.requestExpiryAt),
       resolvedAt: clearResolvedAt ? null : (resolvedAt ?? this.resolvedAt),
       statusReason: clearStatusReason
           ? null
           : (statusReason ?? this.statusReason),
+      requestClientReasonCode: clearRequestClientReasonCode
+          ? null
+          : (requestClientReasonCode ?? this.requestClientReasonCode),
+      flowVersion: flowVersion ?? this.flowVersion,
     );
   }
 
@@ -92,8 +122,12 @@ class RideJoinRequest {
       'status': status.name,
       'requestedAt': requestedAt.millisecondsSinceEpoch,
       'updatedAt': updatedAt.millisecondsSinceEpoch,
+      'statusUpdatedAt': statusUpdatedAt.millisecondsSinceEpoch,
+      'requestExpiryAt': requestExpiryAt?.millisecondsSinceEpoch,
       'resolvedAt': resolvedAt?.millisecondsSinceEpoch,
       'statusReason': statusReason,
+      'requestClientReasonCode': requestClientReasonCode,
+      'flowVersion': flowVersion,
     };
   }
 
@@ -118,12 +152,27 @@ class RideJoinRequest {
             (map['requestedAt'] as num?)?.toInt() ??
             0,
       ),
+      statusUpdatedAt: DateTime.fromMillisecondsSinceEpoch(
+        (map['statusUpdatedAt'] as num?)?.toInt() ??
+            (map['updatedAt'] as num?)?.toInt() ??
+            (map['requestedAt'] as num?)?.toInt() ??
+            0,
+      ),
+      requestExpiryAt: (map['requestExpiryAt'] as num?) == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(
+              (map['requestExpiryAt'] as num).toInt(),
+            ),
       resolvedAt: (map['resolvedAt'] as num?) == null
           ? null
           : DateTime.fromMillisecondsSinceEpoch(
               (map['resolvedAt'] as num).toInt(),
             ),
       statusReason: map['statusReason']?.toString(),
+      requestClientReasonCode: map['requestClientReasonCode']?.toString(),
+      flowVersion:
+          (map['flowVersion'] as num?)?.toInt() ??
+          AppConstants.requestFlowVersion,
     );
   }
 }
@@ -260,7 +309,11 @@ class RideRequest {
 
   List<RideJoinRequest> get pendingJoinRequests {
     final pending = joinRequests
-        .where((request) => request.status == RideJoinRequestStatus.pending)
+        .where(
+          (request) =>
+              request.status == RideJoinRequestStatus.pending &&
+              !request.isExpiredAt(DateTime.now()),
+        )
         .toList();
     pending.sort((left, right) => left.requestedAt.compareTo(right.requestedAt));
     return pending;
@@ -450,9 +503,14 @@ class RideRequest {
         status: legacyStatus,
         requestedAt: requestedAt,
         updatedAt: requestedAt,
+        statusUpdatedAt: requestedAt,
         resolvedAt: legacyStatus == RideJoinRequestStatus.pending
             ? null
             : requestedAt,
+        requestClientReasonCode: legacyStatus == RideJoinRequestStatus.pending
+            ? null
+            : legacyStatus.name,
+        flowVersion: AppConstants.requestFlowVersion,
       ),
     ];
   }

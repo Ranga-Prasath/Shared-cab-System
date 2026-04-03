@@ -67,10 +67,10 @@ class RideTripUtils {
   }
 
   static List<String> canonicalRiderIds(RideRequest ride) {
-    final riderIds = <String>[];
+    final riderIds = <String>{};
 
     void addRider(String id) {
-      if (id.isEmpty || riderIds.contains(id)) return;
+      if (id.isEmpty) return;
       riderIds.add(id);
     }
 
@@ -79,7 +79,7 @@ class RideTripUtils {
       addRider(riderId);
     }
 
-    return riderIds;
+    return riderIds.toList(growable: false);
   }
 
   static double rideDistanceKm(RideRequest ride) {

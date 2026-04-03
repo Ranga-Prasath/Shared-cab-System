@@ -35,23 +35,32 @@ class GeocodingService {
       final data = json.decode(response.body) as Map<String, dynamic>;
       final address = data['address'] as Map<String, dynamic>?;
 
-      if (address == null) return data['display_name'] ?? _fallbackAddress(lat, lng);
+      if (address == null) {
+        return data['display_name'] ?? _fallbackAddress(lat, lng);
+      }
 
       // Build a short, clean address
       final parts = <String>[];
-      final road = address['road'] ?? address['pedestrian'] ?? address['footway'];
-      if (road != null) parts.add(road.toString());
+      final road =
+          address['road'] ?? address['pedestrian'] ?? address['footway'];
+      if (road != null) {
+        parts.add(road.toString());
+      }
 
-      final area = address['suburb'] ??
+      final area =
+          address['suburb'] ??
           address['neighbourhood'] ??
           address['village'] ??
           address['town'];
-      if (area != null) parts.add(area.toString());
+      if (area != null) {
+        parts.add(area.toString());
+      }
 
-      final city = address['city'] ??
-          address['state_district'] ??
-          address['county'];
-      if (city != null && city != area) parts.add(city.toString());
+      final city =
+          address['city'] ?? address['state_district'] ?? address['county'];
+      if (city != null && city != area) {
+        parts.add(city.toString());
+      }
 
       if (parts.isEmpty) {
         return data['display_name'] ?? _fallbackAddress(lat, lng);
@@ -95,12 +104,6 @@ class GeocodingService {
     } catch (_) {
       return const [];
     }
-  }
-
-  /// Reverse-geocode and return a full LocationPoint.
-  static Future<LocationPoint> getLocationPoint(double lat, double lng) async {
-    final address = await reverseGeocode(lat, lng);
-    return LocationPoint(latitude: lat, longitude: lng, address: address);
   }
 
   static String _fallbackAddress(double lat, double lng) {

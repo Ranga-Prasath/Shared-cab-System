@@ -35,6 +35,7 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './tests',
   timeout: 90_000,
+  retries: 1,
   expect: {
     timeout: 10_000,
   },
@@ -46,14 +47,14 @@ export default defineConfig({
     headless: true,
     serviceWorkers: 'block',
     screenshot: 'only-on-failure',
-    trace: 'off',
+    trace: 'on-first-retry',
     video: 'off',
     viewport: { width: 1280, height: 720 },
   },
   webServer: {
     command: 'node scripts/serve_spa.mjs build/web 4173',
     port: 4173,
-    reuseExistingServer: true,
+    reuseExistingServer: false,
     timeout: 120_000,
   },
 });

@@ -143,7 +143,12 @@ class _AvailableRidesScreenState extends ConsumerState<AvailableRidesScreen> {
                   return _buildEmpty(context);
                 }
 
-                return _buildRideList(context, nearbyRides, isNight);
+                return _buildRideList(
+                  context,
+                  nearbyRides,
+                  isNight,
+                  currentUser.id,
+                );
               },
             ),
     );
@@ -284,6 +289,7 @@ class _AvailableRidesScreenState extends ConsumerState<AvailableRidesScreen> {
     BuildContext context,
     List<ScoredMatch> rides,
     bool isNight,
+    String currentUserId,
   ) {
     return ListView.builder(
       padding: const EdgeInsets.all(16),
@@ -329,9 +335,8 @@ class _AvailableRidesScreenState extends ConsumerState<AvailableRidesScreen> {
         return _RideCard(
               match: match,
               isNight: isNight,
+              isShareDisabled: match.ride.userId == currentUserId,
               onShareRide: () => _shareRide(match.ride),
-              myLat: _myLat,
-              myLng: _myLng,
             )
             .animate()
             .fadeIn(delay: (150 * index).ms)
@@ -345,16 +350,14 @@ class _RideCard extends StatelessWidget {
   const _RideCard({
     required this.match,
     required this.isNight,
+    required this.isShareDisabled,
     required this.onShareRide,
-    this.myLat,
-    this.myLng,
   });
 
   final ScoredMatch match;
   final bool isNight;
+  final bool isShareDisabled;
   final VoidCallback onShareRide;
-  final double? myLat;
-  final double? myLng;
 
   @override
   Widget build(BuildContext context) {
@@ -565,7 +568,7 @@ class _RideCard extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: onShareRide,
+                onPressed: isShareDisabled ? null : onShareRide,
                 icon: const Icon(Icons.handshake_outlined, size: 18),
                 label: const Text('Share Ride'),
                 style: ElevatedButton.styleFrom(

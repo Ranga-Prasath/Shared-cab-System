@@ -57,10 +57,7 @@ class _FakeRideJoinFlowGateway extends RideJoinFlowGateway {
 }
 
 class _JoinFlowHarness extends ConsumerWidget {
-  const _JoinFlowHarness({
-    required this.coordinator,
-    required this.hostRide,
-  });
+  const _JoinFlowHarness({required this.coordinator, required this.hostRide});
 
   final RideJoinFlowCoordinator coordinator;
   final RideRequest hostRide;
@@ -70,11 +67,8 @@ class _JoinFlowHarness extends ConsumerWidget {
     return Scaffold(
       body: Center(
         child: ElevatedButton(
-          onPressed: () => coordinator.start(
-            context: context,
-            ref: ref,
-            hostRide: hostRide,
-          ),
+          onPressed: () =>
+              coordinator.start(context: context, ref: ref, hostRide: hostRide),
           child: const Text('Share Ride'),
         ),
       ),
@@ -115,6 +109,22 @@ RideRequest _buildRide({
   );
 }
 
+RideRequest _buildRequestedRide() {
+  return _buildRide(
+    requesterId: 'rider-1',
+    status: RideStatus.pending,
+    joinRequests: [
+      RideJoinRequest(
+        requesterId: 'rider-1',
+        requesterName: 'Rider One',
+        status: RideJoinRequestStatus.pending,
+        requestedAt: DateTime.fromMillisecondsSinceEpoch(1000),
+        updatedAt: DateTime.fromMillisecondsSinceEpoch(1000),
+      ),
+    ],
+  );
+}
+
 Future<void> _pumpHarness(
   WidgetTester tester, {
   required _FakeRideJoinFlowGateway gateway,
@@ -126,10 +136,8 @@ Future<void> _pumpHarness(
     routes: [
       GoRoute(
         path: '/',
-        builder: (context, state) => _JoinFlowHarness(
-          coordinator: coordinator,
-          hostRide: hostRide,
-        ),
+        builder: (context, state) =>
+            _JoinFlowHarness(coordinator: coordinator, hostRide: hostRide),
       ),
       GoRoute(
         path: '/trip/:tripId',
@@ -181,6 +189,8 @@ void main() {
 
       await tester.tap(find.text('Share Ride'));
       await tester.pump();
+      gateway.controller.add(_buildRequestedRide());
+      await tester.pump();
       expect(find.text('Waiting for approval'), findsOneWidget);
 
       gateway.controller.add(
@@ -218,6 +228,8 @@ void main() {
 
       await tester.tap(find.text('Share Ride'));
       await tester.pump();
+      gateway.controller.add(_buildRequestedRide());
+      await tester.pump();
 
       gateway.controller.add(
         _buildRide(
@@ -241,6 +253,44 @@ void main() {
       expect(find.text('Host declined the ride request.'), findsOneWidget);
     });
 
+    testWidgets('send -> wait -> expired request closes waiting dialog', (
+      tester,
+    ) async {
+      final gateway = _FakeRideJoinFlowGateway();
+      await _pumpHarness(
+        tester,
+        gateway: gateway,
+        hostRide: _buildRide(requesterId: 'rider-1'),
+      );
+
+      await tester.tap(find.text('Share Ride'));
+      await tester.pump();
+      gateway.controller.add(_buildRequestedRide());
+      await tester.pump();
+
+      gateway.controller.add(
+        _buildRide(
+          requesterId: 'rider-1',
+          status: RideStatus.pending,
+          joinRequests: [
+            RideJoinRequest(
+              requesterId: 'rider-1',
+              requesterName: 'Rider One',
+              status: RideJoinRequestStatus.expired,
+              requestedAt: DateTime.fromMillisecondsSinceEpoch(1000),
+              updatedAt: DateTime.fromMillisecondsSinceEpoch(2000),
+              resolvedAt: DateTime.fromMillisecondsSinceEpoch(2000),
+              statusReason: 'Request expired.',
+            ),
+          ],
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Request expired.'), findsOneWidget);
+      expect(find.text('Waiting for approval'), findsNothing);
+    });
+
     testWidgets('send -> wait -> cancel uses the shared cancellation path', (
       tester,
     ) async {
@@ -252,6 +302,8 @@ void main() {
       );
 
       await tester.tap(find.text('Share Ride'));
+      await tester.pump();
+      gateway.controller.add(_buildRequestedRide());
       await tester.pump();
 
       await tester.tap(find.text('Cancel Request'));
@@ -272,6 +324,8 @@ void main() {
       );
 
       await tester.tap(find.text('Share Ride'));
+      await tester.pump();
+      gateway.controller.add(_buildRequestedRide());
       await tester.pump();
 
       gateway.controller.add(

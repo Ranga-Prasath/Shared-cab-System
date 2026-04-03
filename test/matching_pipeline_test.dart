@@ -286,5 +286,65 @@ void main() {
 
       expect(results.map((match) => match.ride.id), ['requested']);
     });
+
+    test('excludes self-owned rides even with multiple noisy candidates', () {
+      final selfRecent = _buildRide(
+        id: 'self-recent',
+        userId: 'user-me',
+        userGender: 'female',
+        departureTime: baseTime.add(const Duration(minutes: 2)),
+        createdAt: baseTime.subtract(const Duration(minutes: 1)),
+        routePath: referenceRide.routePath,
+      );
+      final selfStale = _buildRide(
+        id: 'self-stale',
+        userId: 'user-me',
+        userGender: 'female',
+        departureTime: baseTime.add(const Duration(minutes: 2)),
+        createdAt: baseTime.subtract(const Duration(minutes: 10)),
+        routePath: referenceRide.routePath,
+      );
+      final other = _buildRide(
+        id: 'other',
+        userId: 'user-other',
+        userGender: 'female',
+        departureTime: baseTime.add(const Duration(minutes: 2)),
+        createdAt: baseTime.subtract(const Duration(minutes: 1)),
+        routePath: referenceRide.routePath,
+      );
+
+      final results = MatchingPipeline.evaluate(
+        candidates: [selfRecent, selfStale, other],
+        context: buildContext(referenceRide: referenceRide),
+      );
+
+      expect(results.map((match) => match.ride.id), ['other']);
+    });
+
+    test('uses deterministic id tie-break when scores and timestamps are equal', () {
+      final candidateB = _buildRide(
+        id: 'ride-b',
+        userId: 'user-b',
+        userGender: 'female',
+        departureTime: baseTime.add(const Duration(minutes: 5)),
+        createdAt: baseTime.subtract(const Duration(minutes: 3)),
+        routePath: referenceRide.routePath,
+      );
+      final candidateA = _buildRide(
+        id: 'ride-a',
+        userId: 'user-a',
+        userGender: 'female',
+        departureTime: baseTime.add(const Duration(minutes: 5)),
+        createdAt: baseTime.subtract(const Duration(minutes: 3)),
+        routePath: referenceRide.routePath,
+      );
+
+      final results = MatchingPipeline.evaluate(
+        candidates: [candidateB, candidateA],
+        context: buildContext(referenceRide: referenceRide),
+      );
+
+      expect(results.map((match) => match.ride.id), ['ride-a', 'ride-b']);
+    });
   });
 }

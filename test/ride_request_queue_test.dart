@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_cab/core/services/ride_queue_policy.dart';
 import 'package:shared_cab/core/services/ride_request_queue.dart';
 import 'package:shared_cab/models/location_model.dart';
 import 'package:shared_cab/models/ride_request_model.dart';
@@ -241,6 +242,128 @@ void main() {
       expect(
         acceptedRide.ride.joinRequestFor('rider-2')?.status,
         RideJoinRequestStatus.pending,
+      );
+    });
+
+    test('expired pending requests are marked and do not block new requests', () {
+      final firstRequestTime = DateTime.fromMillisecondsSinceEpoch(1000);
+      final secondRequestTime = firstRequestTime.add(const Duration(minutes: 16));
+      final firstQueuedRide = _queueRequest(
+        _buildRide(),
+        requesterId: 'rider-1',
+        now: firstRequestTime,
+      );
+
+      final secondQueuedRide = RideRequestQueue.enqueueRequest(
+        firstQueuedRide,
+        requesterId: 'rider-2',
+        requesterName: 'rider-2',
+        requesterGender: 'female',
+        requesterPickup: 'Pickup rider-2',
+        requesterDropoff: 'Dropoff rider-2',
+        requesterPickupLat: 13.0200,
+        requesterPickupLng: 80.0200,
+        now: secondRequestTime,
+      ).ride;
+
+      expect(secondQueuedRide.status, RideStatus.requested);
+      expect(
+        secondQueuedRide.joinRequestFor('rider-1')?.status,
+        RideJoinRequestStatus.expired,
+      );
+      expect(
+        secondQueuedRide.joinRequestFor('rider-2')?.status,
+        RideJoinRequestStatus.pending,
+      );
+    });
+
+    test('policy can tighten pending queue limit', () {
+      final ride = _buildRide();
+      final queued = _queueRequest(
+        ride,
+        requesterId: 'rider-1',
+        now: DateTime.fromMillisecondsSinceEpoch(1000),
+      );
+
+      expect(
+        () => RideRequestQueue.enqueueRequest(
+          queued,
+          requesterId: 'rider-2',
+          requesterName: 'rider-2',
+          requesterGender: 'female',
+          requesterPickup: 'Pickup rider-2',
+          requesterDropoff: 'Dropoff rider-2',
+          requesterPickupLat: 13.0200,
+          requesterPickupLng: 80.0200,
+          now: DateTime.fromMillisecondsSinceEpoch(1100),
+          policy: const RideQueuePolicy(maxPendingRequests: 1),
+        ),
+        throwsStateError,
+      );
+    });
+
+    test('accepted rider remains matched even if stale pending requests exist', () {
+      final ride = _buildRide(
+        status: RideStatus.requested,
+        coRiderIds: const ['rider-1'],
+        waitForAnotherRider: false,
+        joinRequests: [
+          RideJoinRequest(
+            requesterId: 'rider-1',
+            requesterName: 'rider-1',
+            status: RideJoinRequestStatus.accepted,
+            requestedAt: DateTime.fromMillisecondsSinceEpoch(1000),
+            updatedAt: DateTime.fromMillisecondsSinceEpoch(1000),
+            resolvedAt: DateTime.fromMillisecondsSinceEpoch(1000),
+          ),
+          RideJoinRequest(
+            requesterId: 'rider-2',
+            requesterName: 'rider-2',
+            status: RideJoinRequestStatus.pending,
+            requestedAt: DateTime.fromMillisecondsSinceEpoch(1200),
+            updatedAt: DateTime.fromMillisecondsSinceEpoch(1200),
+          ),
+        ],
+      );
+
+      final cancelledOtherPending = RideRequestQueue.cancelPendingRequest(
+        ride,
+        requesterId: 'rider-2',
+        now: DateTime.fromMillisecondsSinceEpoch(2000),
+      );
+
+      expect(cancelledOtherPending.changed, isTrue);
+      expect(cancelledOtherPending.ride.status, RideStatus.matched);
+      expect(cancelledOtherPending.ride.readyToProceed, isTrue);
+      expect(cancelledOtherPending.ride.waitForAnotherRider, isFalse);
+    });
+
+    test('matched lifecycle auto-resolves stale pending requests', () {
+      final queuedRide = _queueRequest(
+        _buildRide(),
+        requesterId: 'rider-1',
+        now: DateTime.fromMillisecondsSinceEpoch(1000),
+      );
+      final withSecondPending = _queueRequest(
+        queuedRide,
+        requesterId: 'rider-2',
+        now: DateTime.fromMillisecondsSinceEpoch(1200),
+      );
+      final acceptedRide = RideRequestQueue.acceptRequest(
+        withSecondPending,
+        requesterId: 'rider-1',
+        waitForAnotherRider: false,
+        now: DateTime.fromMillisecondsSinceEpoch(2000),
+      ).ride;
+
+      expect(acceptedRide.status, RideStatus.matched);
+      expect(
+        acceptedRide.joinRequestFor('rider-2')?.status,
+        RideJoinRequestStatus.declined,
+      );
+      expect(
+        acceptedRide.joinRequestFor('rider-2')?.statusReason,
+        RideRequestQueue.rideFilledReason,
       );
     });
   });

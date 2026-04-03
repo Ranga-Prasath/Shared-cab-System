@@ -52,7 +52,6 @@ class _LiveTrackingScreenState extends ConsumerState<LiveTrackingScreen>
     _positionSubscription?.cancel();
     _pulseController.dispose();
     _liveVisualState.dispose();
-    ref.read(gpsTrackingActiveProvider.notifier).state = false;
     super.dispose();
   }
 
@@ -99,7 +98,6 @@ class _LiveTrackingScreenState extends ConsumerState<LiveTrackingScreen>
     _positionSubscription = GpsService.positionStream().listen(
       _handlePositionUpdate,
       onError: (_) {
-        ref.read(gpsTrackingActiveProvider.notifier).state = false;
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -108,8 +106,6 @@ class _LiveTrackingScreenState extends ConsumerState<LiveTrackingScreen>
         );
       },
     );
-
-    ref.read(gpsTrackingActiveProvider.notifier).state = initialPosition != null;
   }
 
   void _handlePositionUpdate(Position position) {
@@ -135,7 +131,6 @@ class _LiveTrackingScreenState extends ConsumerState<LiveTrackingScreen>
     );
 
     _mapController.move(nextPosition, 16.0);
-    ref.read(gpsTrackingActiveProvider.notifier).state = true;
   }
 
   @override

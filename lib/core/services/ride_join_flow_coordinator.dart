@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_cab/core/services/ride_join_flow_state.dart';
 import 'package:shared_cab/core/services/ride_service.dart';
 import 'package:shared_cab/core/session/ride_session_controller.dart';
 import 'package:shared_cab/core/theme/app_colors.dart';
@@ -85,6 +86,22 @@ class RideJoinFlowCoordinator {
 
   final RideJoinFlowGateway gateway;
 
+  static void _closeDialogIfOpen(BuildContext context, bool dialogOpen) {
+    if (dialogOpen && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  static void _showMessage(
+    ScaffoldMessengerState messenger, {
+    required String message,
+    required Color color,
+  }) {
+    messenger.showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: color),
+    );
+  }
+
   Future<void> start({
     required BuildContext context,
     required WidgetRef ref,
@@ -105,6 +122,19 @@ class RideJoinFlowCoordinator {
     );
 
     if (!context.mounted) return;
+    final joinWriteAcknowledged = await _waitForJoinRequestWrite(
+      rideId: hostRide.id,
+      requesterId: currentUser.id,
+    );
+    if (!context.mounted) return;
+    if (!joinWriteAcknowledged) {
+      _showMessage(
+        ScaffoldMessenger.of(context),
+        message: 'Could not confirm your request. Please try again.',
+        color: AppColors.warning,
+      );
+      return;
+    }
 
     await _showPendingDecisionDialog(
       context: context,
@@ -130,58 +160,63 @@ class RideJoinFlowCoordinator {
         return;
       }
 
-      final request = updatedRide.joinRequestFor(requesterId);
-      final amJoined = updatedRide.coRiderIds.contains(requesterId);
-
-      if (amJoined &&
-          updatedRide.readyToProceed &&
-          updatedRide.status == RideStatus.matched) {
-        subscription.cancel();
-        if (dialogOpen && Navigator.of(context).canPop()) {
-          dialogOpen = false;
-          Navigator.of(context).pop();
-        }
-        _startSharedTrip(router, ref, updatedRide);
+      final state = RideJoinFlowStateResolver.resolve(
+        updatedRide: updatedRide,
+        requesterId: requesterId,
+        fallbackDeclineMessage:
+            '${hostRide.userName.isNotEmpty ? hostRide.userName : 'The rider'} declined your request.',
+      );
+      if (state.type == RideJoinFlowStateType.keepWaiting) {
         return;
       }
 
-      if (amJoined &&
-          updatedRide.waitForAnotherRider &&
-          !updatedRide.readyToProceed) {
-        subscription.cancel();
-        if (dialogOpen && Navigator.of(context).canPop()) {
-          dialogOpen = false;
-          Navigator.of(context).pop();
-        }
-        unawaited(
-          _showWaitingForAnotherRiderDialog(
-            context: context,
-            ref: ref,
-            rideId: hostRide.id,
-            hostName: hostRide.userName,
-            requesterId: requesterId,
-          ),
-        );
-        return;
-      }
+      subscription.cancel();
+      _closeDialogIfOpen(context, dialogOpen);
+      dialogOpen = false;
 
-      if (request?.status == RideJoinRequestStatus.declined) {
-        subscription.cancel();
-        if (dialogOpen && Navigator.of(context).canPop()) {
-          dialogOpen = false;
-          Navigator.of(context).pop();
-        }
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(
-              request?.statusReason?.isNotEmpty == true
-                  ? request!.statusReason!
-                  : '${hostRide.userName} declined your request.',
+      switch (state.type) {
+        case RideJoinFlowStateType.startTrip:
+          _startSharedTrip(router, ref, updatedRide);
+          break;
+        case RideJoinFlowStateType.waitForAnotherRider:
+          unawaited(
+            _showWaitingForAnotherRiderDialog(
+              context: context,
+              ref: ref,
+              rideId: hostRide.id,
+              hostName: hostRide.userName,
+              requesterId: requesterId,
             ),
-            backgroundColor: AppColors.danger,
-          ),
-        );
+          );
+          break;
+        case RideJoinFlowStateType.requestInactive:
+          _showMessage(
+            messenger,
+            message: state.message ?? 'Request is no longer active.',
+            color: AppColors.warning,
+          );
+          break;
+        case RideJoinFlowStateType.requestDeclined:
+          _showMessage(
+            messenger,
+            message: state.message ?? 'Request was declined.',
+            color: AppColors.danger,
+          );
+          break;
+        case RideJoinFlowStateType.keepWaiting:
+          break;
       }
+    });
+    final timeoutTimer = Timer(const Duration(seconds: 90), () {
+      if (!context.mounted || !dialogOpen) return;
+      subscription.cancel();
+      _closeDialogIfOpen(context, dialogOpen);
+      dialogOpen = false;
+      _showMessage(
+        messenger,
+        message: 'No host response yet. You can retry or keep browsing rides.',
+        color: AppColors.warning,
+      );
     });
 
     dialogOpen = true;
@@ -236,9 +271,29 @@ class RideJoinFlowCoordinator {
         ),
       ),
     ).whenComplete(() async {
+      timeoutTimer.cancel();
       dialogOpen = false;
       await subscription.cancel();
     });
+  }
+
+  Future<bool> _waitForJoinRequestWrite({
+    required String rideId,
+    required String requesterId,
+  }) async {
+    try {
+      final updatedRide = await gateway
+          .rideStream(rideId)
+          .firstWhere((ride) {
+            if (ride == null) return false;
+            if (ride.coRiderIds.contains(requesterId)) return true;
+            return ride.joinRequestFor(requesterId) != null;
+          })
+          .timeout(const Duration(seconds: 5));
+      return updatedRide != null;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> _showWaitingForAnotherRiderDialog({
@@ -261,15 +316,12 @@ class RideJoinFlowCoordinator {
       final amJoined = updatedRide.coRiderIds.contains(requesterId);
       if (!amJoined) {
         subscription.cancel();
-        if (dialogOpen && Navigator.of(context).canPop()) {
-          dialogOpen = false;
-          Navigator.of(context).pop();
-        }
-        messenger.showSnackBar(
-          const SnackBar(
-            content: Text('You left the shared ride.'),
-            backgroundColor: AppColors.warning,
-          ),
+        _closeDialogIfOpen(context, dialogOpen);
+        dialogOpen = false;
+        _showMessage(
+          messenger,
+          message: 'You left the shared ride.',
+          color: AppColors.warning,
         );
         return;
       }
@@ -277,10 +329,8 @@ class RideJoinFlowCoordinator {
       if (updatedRide.readyToProceed &&
           updatedRide.status == RideStatus.matched) {
         subscription.cancel();
-        if (dialogOpen && Navigator.of(context).canPop()) {
-          dialogOpen = false;
-          Navigator.of(context).pop();
-        }
+        _closeDialogIfOpen(context, dialogOpen);
+        dialogOpen = false;
         _startSharedTrip(router, ref, updatedRide);
       }
     });
@@ -302,11 +352,10 @@ class RideJoinFlowCoordinator {
                 final cancelled = await gateway.cancelJoinedRide(rideId);
                 if (!dialogContext.mounted) return;
                 if (!cancelled) {
-                  messenger.showSnackBar(
-                    const SnackBar(
-                      content: Text('Ride already moved forward.'),
-                      backgroundColor: AppColors.warning,
-                    ),
+                  _showMessage(
+                    messenger,
+                    message: 'Ride already moved forward.',
+                    color: AppColors.warning,
                   );
                   return;
                 }

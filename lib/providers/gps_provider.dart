@@ -2,11 +2,7 @@
 // GPS Location Provider — streams real device location
 
 import 'dart:async';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
-
-/// Whether GPS tracking is actively running
-final gpsTrackingActiveProvider = StateProvider<bool>((ref) => false);
 
 /// Service class for GPS operations
 class GpsService {
@@ -41,13 +37,11 @@ class GpsService {
       final ok = await ensurePermission();
       if (!ok) return null;
 
-      return await Geolocator
-          .getCurrentPosition(
-            locationSettings: const LocationSettings(
-              accuracy: LocationAccuracy.high,
-            ),
-          )
-          .timeout(timeout);
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      ).timeout(timeout);
     } catch (_) {
       return null;
     }

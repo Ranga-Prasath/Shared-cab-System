@@ -291,6 +291,7 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
                           context,
                           const <ScoredMatch>[],
                           isNight,
+                          currentUser.id,
                         );
                       }
 
@@ -307,7 +308,12 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
                         ),
                       );
 
-                      return _buildResults(context, matchingRides, isNight);
+                      return _buildResults(
+                        context,
+                        matchingRides,
+                        isNight,
+                        currentUser.id,
+                      );
                     },
                   ),
           ),
@@ -348,6 +354,7 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
     BuildContext context,
     List<ScoredMatch> matches,
     bool isNight,
+    String currentUserId,
   ) {
     if (matches.isEmpty) {
       return Center(
@@ -459,6 +466,7 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
         return _RealMatchCard(
               match: match,
               isNight: isNight,
+              isShareDisabled: match.ride.userId == currentUserId,
               onAccept: () => _joinFlowCoordinator.start(
                 context: context,
                 ref: ref,
@@ -688,11 +696,13 @@ class _RealMatchCard extends StatelessWidget {
   const _RealMatchCard({
     required this.match,
     required this.isNight,
+    required this.isShareDisabled,
     required this.onAccept,
   });
 
   final ScoredMatch match;
   final bool isNight;
+  final bool isShareDisabled;
   final VoidCallback onAccept;
 
   @override
@@ -842,7 +852,7 @@ class _RealMatchCard extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: onAccept,
+                onPressed: isShareDisabled ? null : onAccept,
                 icon: const Icon(Icons.handshake_outlined, size: 18),
                 label: const Text('Share Ride'),
               ),

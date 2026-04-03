@@ -1,10 +1,8 @@
+import 'package:shared_cab/core/services/ride_queue_policy.dart';
 import 'package:shared_cab/models/ride_request_model.dart';
 
 class RideRequestMutation {
-  const RideRequestMutation({
-    required this.ride,
-    required this.changed,
-  });
+  const RideRequestMutation({required this.ride, required this.changed});
 
   final RideRequest ride;
   final bool changed;
@@ -13,14 +11,17 @@ class RideRequestMutation {
 class RideRequestQueue {
   RideRequestQueue._();
 
-  static const String requesterCancelledReason = 'Requester cancelled the ride.';
+  static const String requesterCancelledReason =
+      'Requester cancelled the ride.';
   static const String hostDeclinedReason = 'Host declined the ride request.';
   static const String rideFilledReason = 'Ride is no longer available.';
   static const String joinedRiderCancelledReason =
       'Joined rider left before the trip started.';
+  static const String requestExpiredReason = 'Request expired.';
 
   static bool isDiscoverable(RideRequest ride) {
-    return ride.status == RideStatus.pending || ride.status == RideStatus.requested;
+    return ride.status == RideStatus.pending ||
+        ride.status == RideStatus.requested;
   }
 
   static RideRequestMutation enqueueRequest(
@@ -33,27 +34,39 @@ class RideRequestQueue {
     required double? requesterPickupLat,
     required double? requesterPickupLng,
     DateTime? now,
+    RideQueuePolicy policy = const RideQueuePolicy(),
   }) {
+    final timestamp = now ?? DateTime.now();
+    final normalized = _normalizeForPendingExpiry(ride, timestamp);
+    final effectiveRide = normalized.ride;
+
     if (requesterId.isEmpty) {
       throw StateError('Requester id is required.');
     }
-    if (requesterId == ride.userId) {
+    if (requesterId == effectiveRide.userId) {
       throw StateError('You cannot request your own ride.');
     }
-    if (!isDiscoverable(ride)) {
+    if (!isDiscoverable(effectiveRide)) {
       throw StateError('This ride is no longer accepting requests.');
     }
-    if (_hasReachedCapacity(ride)) {
+    if (_hasReachedCapacity(effectiveRide)) {
       throw StateError('This ride is already full.');
     }
-    if (ride.coRiderIds.contains(requesterId)) {
+    if (effectiveRide.coRiderIds.contains(requesterId)) {
       throw StateError('You already joined this ride.');
     }
 
-    final timestamp = now ?? DateTime.now();
-    final requests = List<RideJoinRequest>.from(ride.joinRequests);
+    final requests = List<RideJoinRequest>.from(effectiveRide.joinRequests);
     final index = requests.indexWhere(
       (request) => request.requesterId == requesterId,
+    );
+    if (index < 0 &&
+        _pendingRequestCount(requests) >= policy.maxPendingRequests) {
+      throw StateError('Ride already has maximum pending requests.');
+    }
+
+    final expiryAt = timestamp.add(
+      Duration(minutes: policy.requestExpiryMinutes),
     );
     final nextRequest = RideJoinRequest(
       requesterId: requesterId,
@@ -66,6 +79,9 @@ class RideRequestQueue {
       status: RideJoinRequestStatus.pending,
       requestedAt: timestamp,
       updatedAt: timestamp,
+      statusUpdatedAt: timestamp,
+      requestExpiryAt: expiryAt,
+      flowVersion: policy.flowVersion,
     );
 
     if (index >= 0) {
@@ -75,11 +91,10 @@ class RideRequestQueue {
     }
 
     return RideRequestMutation(
-      ride: _copyWithQueue(
-        ride,
+      ride: _applyLifecycle(
+        effectiveRide,
         joinRequests: requests,
-        status: _resolveDiscoverableStatus(requests),
-        readyToProceed: false,
+        now: timestamp,
       ),
       changed: true,
     );
@@ -90,36 +105,45 @@ class RideRequestQueue {
     required String requesterId,
     DateTime? now,
   }) {
+    final timestamp = now ?? DateTime.now();
+    final normalized = _normalizeForPendingExpiry(ride, timestamp);
+    final effectiveRide = normalized.ride;
+
     if (requesterId.isEmpty) {
-      return RideRequestMutation(ride: ride, changed: false);
+      return RideRequestMutation(
+        ride: effectiveRide,
+        changed: normalized.changed,
+      );
     }
 
-    final requests = List<RideJoinRequest>.from(ride.joinRequests);
+    final requests = List<RideJoinRequest>.from(effectiveRide.joinRequests);
     final index = requests.indexWhere(
       (request) =>
           request.requesterId == requesterId &&
           request.status == RideJoinRequestStatus.pending,
     );
     if (index < 0) {
-      return RideRequestMutation(ride: ride, changed: false);
+      return RideRequestMutation(
+        ride: effectiveRide,
+        changed: normalized.changed,
+      );
     }
 
-    final timestamp = now ?? DateTime.now();
     requests[index] = requests[index].copyWith(
       status: RideJoinRequestStatus.cancelled,
       updatedAt: timestamp,
+      statusUpdatedAt: timestamp,
       resolvedAt: timestamp,
       statusReason: requesterCancelledReason,
+      requestClientReasonCode: 'cancelled_by_requester',
+      clearRequestExpiryAt: true,
     );
 
     return RideRequestMutation(
-      ride: _copyWithQueue(
-        ride,
+      ride: _applyLifecycle(
+        effectiveRide,
         joinRequests: requests,
-        status: _statusAfterPendingQueueChange(
-          ride: ride,
-          requests: requests,
-        ),
+        now: timestamp,
       ),
       changed: true,
     );
@@ -131,69 +155,82 @@ class RideRequestQueue {
     required bool waitForAnotherRider,
     DateTime? now,
   }) {
-    if (_hasReachedCapacity(ride)) {
-      return RideRequestMutation(ride: ride, changed: false);
+    final timestamp = now ?? DateTime.now();
+    final normalized = _normalizeForPendingExpiry(ride, timestamp);
+    final effectiveRide = normalized.ride;
+
+    if (_hasReachedCapacity(effectiveRide)) {
+      return RideRequestMutation(
+        ride: effectiveRide,
+        changed: normalized.changed,
+      );
     }
 
-    final requests = List<RideJoinRequest>.from(ride.joinRequests);
+    final requests = List<RideJoinRequest>.from(effectiveRide.joinRequests);
     final index = requests.indexWhere(
       (request) =>
           request.requesterId == requesterId &&
           request.status == RideJoinRequestStatus.pending,
     );
     if (index < 0) {
-      return RideRequestMutation(ride: ride, changed: false);
+      return RideRequestMutation(
+        ride: effectiveRide,
+        changed: normalized.changed,
+      );
     }
 
-    final timestamp = now ?? DateTime.now();
     final acceptedRequest = requests[index].copyWith(
       status: RideJoinRequestStatus.accepted,
       updatedAt: timestamp,
+      statusUpdatedAt: timestamp,
       resolvedAt: timestamp,
       clearStatusReason: true,
+      requestClientReasonCode: 'accepted_by_host',
+      clearRequestExpiryAt: true,
     );
     requests[index] = acceptedRequest;
 
-    final updatedCoRiders = [...ride.coRiderIds];
-    if (!updatedCoRiders.contains(requesterId)) {
-      updatedCoRiders.add(requesterId);
-    }
+    final updatedCoRiders = <String>{...effectiveRide.coRiderIds}
+      ..add(requesterId);
 
     final acceptedStops = _upsertAcceptedPickupStop(
-      ride.acceptedPickupStops,
+      effectiveRide.acceptedPickupStops,
       acceptedRequest,
     );
 
-    final canWaitForAnotherRider =
-        waitForAnotherRider && updatedCoRiders.toSet().length < ride.maxCoRiders;
-
-    if (!canWaitForAnotherRider) {
-      for (var index = 0; index < requests.length; index++) {
-        final request = requests[index];
+    final hostCanWait =
+        waitForAnotherRider &&
+        updatedCoRiders.length < effectiveRide.maxCoRiders;
+    if (!hostCanWait) {
+      for (
+        var requestIndex = 0;
+        requestIndex < requests.length;
+        requestIndex++
+      ) {
+        final request = requests[requestIndex];
         if (request.status != RideJoinRequestStatus.pending) {
           continue;
         }
-        requests[index] = request.copyWith(
+        requests[requestIndex] = request.copyWith(
           status: RideJoinRequestStatus.declined,
           updatedAt: timestamp,
+          statusUpdatedAt: timestamp,
           resolvedAt: timestamp,
           statusReason: rideFilledReason,
+          requestClientReasonCode: 'ride_filled',
+          clearRequestExpiryAt: true,
         );
       }
     }
 
-    final nextStatus = canWaitForAnotherRider
-        ? _resolveDiscoverableStatus(requests)
-        : RideStatus.matched;
-
     return RideRequestMutation(
-      ride: ride.copyWith(
-        coRiderIds: updatedCoRiders,
+      ride: _applyLifecycle(
+        effectiveRide,
+        coRiderIds: updatedCoRiders.toList(growable: false),
         joinRequests: requests,
         acceptedPickupStops: acceptedStops,
-        status: nextStatus,
-        waitForAnotherRider: canWaitForAnotherRider,
-        readyToProceed: !canWaitForAnotherRider,
+        waitForAnotherRiderIntent: waitForAnotherRider,
+        now: timestamp,
       ),
       changed: true,
     );
@@ -205,32 +242,37 @@ class RideRequestQueue {
     String? reason,
     DateTime? now,
   }) {
-    final requests = List<RideJoinRequest>.from(ride.joinRequests);
+    final timestamp = now ?? DateTime.now();
+    final normalized = _normalizeForPendingExpiry(ride, timestamp);
+    final effectiveRide = normalized.ride;
+    final requests = List<RideJoinRequest>.from(effectiveRide.joinRequests);
     final index = requests.indexWhere(
       (request) =>
           request.requesterId == requesterId &&
           request.status == RideJoinRequestStatus.pending,
     );
     if (index < 0) {
-      return RideRequestMutation(ride: ride, changed: false);
+      return RideRequestMutation(
+        ride: effectiveRide,
+        changed: normalized.changed,
+      );
     }
 
-    final timestamp = now ?? DateTime.now();
     requests[index] = requests[index].copyWith(
       status: RideJoinRequestStatus.declined,
       updatedAt: timestamp,
+      statusUpdatedAt: timestamp,
       resolvedAt: timestamp,
       statusReason: reason ?? hostDeclinedReason,
+      requestClientReasonCode: 'declined_by_host',
+      clearRequestExpiryAt: true,
     );
 
     return RideRequestMutation(
-      ride: _copyWithQueue(
-        ride,
+      ride: _applyLifecycle(
+        effectiveRide,
         joinRequests: requests,
-        status: _statusAfterPendingQueueChange(
-          ride: ride,
-          requests: requests,
-        ),
+        now: timestamp,
       ),
       changed: true,
     );
@@ -241,54 +283,43 @@ class RideRequestQueue {
     required String riderId,
     DateTime? now,
   }) {
-    if (riderId.isEmpty || !ride.coRiderIds.contains(riderId)) {
-      return RideRequestMutation(ride: ride, changed: false);
+    final timestamp = now ?? DateTime.now();
+    final normalized = _normalizeForPendingExpiry(ride, timestamp);
+    final effectiveRide = normalized.ride;
+
+    if (riderId.isEmpty || !effectiveRide.coRiderIds.contains(riderId)) {
+      return RideRequestMutation(
+        ride: effectiveRide,
+        changed: normalized.changed,
+      );
     }
 
-    final timestamp = now ?? DateTime.now();
-    final updatedCoRiders = [...ride.coRiderIds]
+    final updatedCoRiders = [...effectiveRide.coRiderIds]
       ..removeWhere((value) => value == riderId);
-    final updatedRequests = ride.joinRequests
-        .map((request) {
-          if (request.requesterId != riderId) {
-            return request;
-          }
-          return request.copyWith(
-            status: RideJoinRequestStatus.cancelled,
-            updatedAt: timestamp,
-            resolvedAt: timestamp,
-            statusReason: joinedRiderCancelledReason,
-          );
-        })
-        .toList();
-
-    final pendingRequests = _pendingRequestCount(updatedRequests);
-    final acceptedRiderCount = updatedCoRiders.toSet().length;
-    final hasCapacityForMore = updatedCoRiders.toSet().length < ride.maxCoRiders;
-    final shouldRemainWaiting =
-        ride.waitForAnotherRider && hasCapacityForMore && acceptedRiderCount > 0;
-
-    final shouldStayMatched =
-        !ride.waitForAnotherRider && acceptedRiderCount > 0;
-
-    final nextStatus = pendingRequests > 0
-        ? RideStatus.requested
-        : shouldStayMatched
-        ? RideStatus.matched
-        : shouldRemainWaiting
-        ? RideStatus.pending
-        : RideStatus.pending;
+    final updatedRequests = effectiveRide.joinRequests.map((request) {
+      if (request.requesterId != riderId) {
+        return request;
+      }
+      return request.copyWith(
+        status: RideJoinRequestStatus.cancelled,
+        updatedAt: timestamp,
+        statusUpdatedAt: timestamp,
+        resolvedAt: timestamp,
+        statusReason: joinedRiderCancelledReason,
+        requestClientReasonCode: 'cancelled_after_join',
+        clearRequestExpiryAt: true,
+      );
+    }).toList();
 
     return RideRequestMutation(
-      ride: ride.copyWith(
+      ride: _applyLifecycle(
+        effectiveRide,
         coRiderIds: updatedCoRiders,
         joinRequests: updatedRequests,
-        acceptedPickupStops: ride.acceptedPickupStops
+        acceptedPickupStops: effectiveRide.acceptedPickupStops
             .where((pickupStop) => pickupStop.riderId != riderId)
             .toList(),
-        status: nextStatus,
-        waitForAnotherRider: shouldRemainWaiting,
-        readyToProceed: shouldStayMatched,
+        now: timestamp,
       ),
       changed: true,
     );
@@ -304,24 +335,101 @@ class RideRequestQueue {
     );
   }
 
-  static bool _hasReachedCapacity(RideRequest ride) {
-    return ride.coRiderIds.toSet().length >= ride.maxCoRiders;
+  static RideRequestMutation _normalizeForPendingExpiry(
+    RideRequest ride,
+    DateTime now,
+  ) {
+    var changed = false;
+    final updatedRequests = ride.joinRequests.map((request) {
+      if (!request.isExpiredAt(now)) {
+        return request;
+      }
+      changed = true;
+      return request.copyWith(
+        status: RideJoinRequestStatus.expired,
+        updatedAt: now,
+        statusUpdatedAt: now,
+        resolvedAt: now,
+        statusReason: requestExpiredReason,
+        requestClientReasonCode: 'expired',
+        clearRequestExpiryAt: true,
+      );
+    }).toList();
+
+    if (!changed) {
+      return RideRequestMutation(ride: ride, changed: false);
+    }
+
+    return RideRequestMutation(
+      ride: _applyLifecycle(ride, joinRequests: updatedRequests, now: now),
+      changed: true,
+    );
   }
 
-  static RideRequest _copyWithQueue(
+  static RideRequest _applyLifecycle(
     RideRequest ride, {
     required List<RideJoinRequest> joinRequests,
-    required RideStatus status,
-    bool? readyToProceed,
+    required DateTime now,
+    List<String>? coRiderIds,
+    List<RidePickupStop>? acceptedPickupStops,
+    bool? waitForAnotherRiderIntent,
   }) {
-    return ride.copyWith(
+    final nextCoRiders = <String>{
+      ...(coRiderIds ?? ride.coRiderIds),
+    }.toList(growable: false);
+    final nextWaitIntent =
+        waitForAnotherRiderIntent ?? ride.waitForAnotherRider;
+    final lifecycle = _deriveLifecycle(
+      ride: ride,
       joinRequests: joinRequests,
-      status: status,
-      readyToProceed: readyToProceed,
-      waitForAnotherRider: status == RideStatus.matched
-          ? false
-          : ride.waitForAnotherRider,
+      coRiderIds: nextCoRiders,
+      waitForAnotherRiderIntent: nextWaitIntent,
     );
+
+    final normalizedRequests = lifecycle.status == RideStatus.matched
+        ? _resolvePendingRequestsForMatched(requests: joinRequests, now: now)
+        : joinRequests;
+
+    return ride.copyWith(
+      joinRequests: normalizedRequests,
+      coRiderIds: nextCoRiders,
+      acceptedPickupStops: acceptedPickupStops ?? ride.acceptedPickupStops,
+      status: lifecycle.status,
+      waitForAnotherRider: lifecycle.waitForAnotherRider,
+      readyToProceed: lifecycle.readyToProceed,
+    );
+  }
+
+  static _RideLifecycle _deriveLifecycle({
+    required RideRequest ride,
+    required List<RideJoinRequest> joinRequests,
+    required List<String> coRiderIds,
+    required bool waitForAnotherRiderIntent,
+  }) {
+    final acceptedRiderCount = coRiderIds.length;
+    final pendingCount = _pendingRequestCount(joinRequests);
+    final hasCapacityForMore = acceptedRiderCount < ride.maxCoRiders;
+    final waitForAnotherRider =
+        waitForAnotherRiderIntent &&
+        acceptedRiderCount > 0 &&
+        hasCapacityForMore;
+    final readyToProceed = acceptedRiderCount > 0 && !waitForAnotherRider;
+
+    final status = readyToProceed
+        ? RideStatus.matched
+        : pendingCount > 0
+        ? RideStatus.requested
+        : RideStatus.pending;
+
+    return _RideLifecycle(
+      status: status,
+      waitForAnotherRider: waitForAnotherRider,
+      readyToProceed: readyToProceed,
+    );
+  }
+
+  static bool _hasReachedCapacity(RideRequest ride) {
+    return <String>{...ride.coRiderIds}.length >= ride.maxCoRiders;
   }
 
   static int _pendingRequestCount(List<RideJoinRequest> requests) {
@@ -330,24 +438,24 @@ class RideRequestQueue {
         .length;
   }
 
-  static RideStatus _resolveDiscoverableStatus(List<RideJoinRequest> requests) {
-    return _pendingRequestCount(requests) > 0
-        ? RideStatus.requested
-        : RideStatus.pending;
-  }
-
-  static RideStatus _statusAfterPendingQueueChange({
-    required RideRequest ride,
+  static List<RideJoinRequest> _resolvePendingRequestsForMatched({
     required List<RideJoinRequest> requests,
+    required DateTime now,
   }) {
-    final pendingCount = _pendingRequestCount(requests);
-    if (pendingCount > 0) {
-      return RideStatus.requested;
-    }
-    if (ride.waitForAnotherRider && ride.coRiderIds.isNotEmpty) {
-      return RideStatus.pending;
-    }
-    return RideStatus.pending;
+    return requests.map((request) {
+      if (request.status != RideJoinRequestStatus.pending) {
+        return request;
+      }
+      return request.copyWith(
+        status: RideJoinRequestStatus.declined,
+        updatedAt: now,
+        statusUpdatedAt: now,
+        resolvedAt: now,
+        statusReason: rideFilledReason,
+        requestClientReasonCode: 'ride_filled',
+        clearRequestExpiryAt: true,
+      );
+    }).toList();
   }
 
   static List<RidePickupStop> _upsertAcceptedPickupStop(
@@ -374,4 +482,16 @@ class RideRequestQueue {
       nextStop,
     ];
   }
+}
+
+class _RideLifecycle {
+  const _RideLifecycle({
+    required this.status,
+    required this.waitForAnotherRider,
+    required this.readyToProceed,
+  });
+
+  final RideStatus status;
+  final bool waitForAnotherRider;
+  final bool readyToProceed;
 }

@@ -7,4 +7,8 @@ class AppConstants {
 
   static const double routeOverlapThresholdPercent = 35.0;
   static const double matchCorridorMeters = 1200.0;
+
+  static const int joinRequestExpiryMinutes = 15;
+  static const int maxPendingJoinRequestsPerRide = 3;
+  static const int requestFlowVersion = 1;
 }

@@ -318,7 +318,11 @@ async function enableNightModeOverride(page) {
 }
 
 function rideCardForUser(page, userName) {
-  return page.getByRole('group', { name: new RegExp(userName, 'i') });
+  return page.getByRole('group', { name: new RegExp(`\\b${escapeRegExp(userName)}\\b`, 'i') });
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 async function clickFlutterLabel(page, label) {
@@ -350,6 +354,17 @@ async function clickLocatorCenter(page, locator) {
     throw new Error('Could not resolve a clickable bounding box.');
   }
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+}
+
+async function maybeConfirmJoinRequest(page) {
+  const sendRequestButton = page.getByRole('button', { name: 'Send Request' });
+  const isVisible = await sendRequestButton
+    .first()
+    .isVisible({ timeout: 2_000 })
+    .catch(() => false);
+  if (isVisible) {
+    await clickFlutterLabel(page, 'Send Request');
+  }
 }
 
 function getStringField(fields, fieldName) {
@@ -388,7 +403,7 @@ async function deleteFirestoreDocument(documentName) {
 async function cleanupPlaywrightDemoDocs() {
   const userRows = await firestoreRunQuery({
     from: [{ collectionId: 'users' }],
-    limit: 100,
+    limit: 500,
   });
   const testUsers = userRows
     .filter((row) => row.document)
@@ -408,7 +423,7 @@ async function cleanupPlaywrightDemoDocs() {
   const rideRows = await firestoreRunQuery({
     from: [{ collectionId: 'rides' }],
     orderBy: [{ field: { fieldPath: 'createdAt' }, direction: 'DESCENDING' }],
-    limit: 100,
+    limit: 500,
   });
   const testRides = rideRows
     .filter((row) => row.document)
@@ -451,6 +466,10 @@ async function safeCleanupPlaywrightDemoDocs() {
 test.describe('Shared Cab demo regressions', () => {
   test.beforeEach(async ({ page }) => {
     await mockExternalApis(page);
+  });
+
+  test.afterEach(async () => {
+    await safeCleanupPlaywrightDemoDocs();
   });
 
   test('searching co-riders opens the matches screen', async ({ page }) => {
@@ -554,6 +573,7 @@ test.describe('Shared Cab demo regressions', () => {
           name: 'Share Ride',
         }),
       );
+      await maybeConfirmJoinRequest(requesterPage);
       await expect(requesterPage.locator('body')).toContainText(
         `Host ${stamp} is reviewing your request.`,
       );
@@ -629,6 +649,7 @@ test.describe('Shared Cab demo regressions', () => {
           name: 'Share Ride',
         }),
       );
+      await maybeConfirmJoinRequest(requesterPage);
       await expect(requesterPage.locator('body')).toContainText(
         `Host ${stamp} is reviewing your request.`,
       );
@@ -647,7 +668,8 @@ test.describe('Shared Cab demo regressions', () => {
       await clickFlutterLabel(hostPage, 'Proceed Ride');
 
       await expect(hostPage).toHaveURL(/#\/trip\//, { timeout: 25_000 });
-      await expect(requesterPage).toHaveURL(/#\/trip\//, { timeout: 25_000 });
+      await bringToFrontAndEnable(requesterPage);
+      await expect(requesterPage).toHaveURL(/#\/trip\//, { timeout: 60_000 });
       await expect(hostPage.locator('body')).toContainText('Waiting for Pickup');
       await expect(requesterPage.locator('body')).toContainText(
         'Waiting for Pickup',

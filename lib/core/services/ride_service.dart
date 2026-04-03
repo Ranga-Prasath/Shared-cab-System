@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:shared_cab/core/services/auth_service.dart';
+import 'package:shared_cab/core/services/ride_join_request_store.dart';
 import 'package:shared_cab/core/services/ride_request_queue.dart';
 import 'package:shared_cab/core/utils/ride_trip_utils.dart';
 import 'package:shared_cab/models/ride_request_model.dart';
@@ -13,6 +14,10 @@ class RideService {
   static bool get _canUseFirestore => AuthService.isFirebaseReady;
   static CollectionReference<Map<String, dynamic>> get _rides =>
       _firestore.collection('rides');
+  // Source of truth remains embedded joinRequests in ride documents.
+  // requests subcollection is a write-through projection for scalable reads.
+  static const RideJoinRequestStore _joinRequestStore =
+      FirestoreRideJoinRequestStore();
 
   @visibleForTesting
   static List<RideRequest> ridesToAutoCancelOnPublish({
@@ -62,44 +67,36 @@ class RideService {
     return currentUid;
   }
 
-  /// Cancels previous unpublished rides only when the user commits a new publish.
-  static Future<void> cancelMyPreviousRides() async {
-    if (!_canUseFirestore) return;
-    final currentUid = _requireCurrentUserId();
+  static Future<bool> _runQueueMutation({
+    required String rideId,
+    required void Function(RideRequest ride) authorize,
+    required RideRequestMutation Function(RideRequest ride) mutate,
+  }) async {
+    final rideRef = _rides.doc(rideId);
+    var changed = false;
 
-    final snapshot = await _rides.where('userId', isEqualTo: currentUid).get();
-    final rides = snapshot.docs
-        .map((doc) => RideRequest.fromMap(doc.data()))
-        .toList();
-    final ridesToCancel = ridesToAutoCancelOnPublish(
-      existingRides: rides,
-      publishingRideId: '',
-    );
-    final cancellableIds = ridesToCancel.map((ride) => ride.id).toSet();
-    final batch = _firestore.batch();
+    await _firestore.runTransaction((transaction) async {
+      final timestamp = DateTime.now();
+      final snapshot = await transaction.get(rideRef);
+      if (!snapshot.exists || snapshot.data() == null) return;
 
-    for (final doc in snapshot.docs) {
-      final ride = RideRequest.fromMap(doc.data());
-      if (!cancellableIds.contains(ride.id)) {
-        continue;
-      }
+      final currentRide = RideRequest.fromMap(snapshot.data()!);
+      authorize(currentRide);
+      final mutation = mutate(currentRide);
+      if (!mutation.changed) return;
 
-      final cancelledRide = RideRequestQueue.clearQueueForCancellation(
-        ride,
-      ).copyWith(status: RideStatus.cancelled);
+      changed = true;
+      transaction.set(rideRef, mutation.ride.toMap());
+      _joinRequestStore.syncQueueProjectionInTransaction(
+        transaction: transaction,
+        rideRef: rideRef,
+        previousJoinRequests: currentRide.joinRequests,
+        nextJoinRequests: mutation.ride.joinRequests,
+        now: timestamp,
+      );
+    });
 
-      batch.set(doc.reference, {
-        ...cancelledRide.toMap(),
-        'cabLat': null,
-        'cabLng': null,
-        'cabSegmentIndex': null,
-        'cabSegmentProgress': null,
-        'cabBearing': null,
-        'cabUpdatedAt': null,
-      });
-    }
-
-    await batch.commit();
+    return changed;
   }
 
   static Future<void> publishRide(RideRequest ride) async {
@@ -111,20 +108,25 @@ class RideService {
     final existingRides = snapshot.docs
         .map((doc) => RideRequest.fromMap(doc.data()))
         .toList();
+    final existingById = {
+      for (final existingRide in existingRides) existingRide.id: existingRide,
+    };
     final ridesToCancel = ridesToAutoCancelOnPublish(
       existingRides: existingRides,
       publishingRideId: ride.id,
     );
     final cancellableIds = ridesToCancel.map((item) => item.id).toSet();
     final batch = _firestore.batch();
+    final timestamp = DateTime.now();
 
     for (final doc in snapshot.docs) {
       if (!cancellableIds.contains(doc.id)) {
         continue;
       }
 
+      final currentRide = RideRequest.fromMap(doc.data());
       final cancelledRide = RideRequestQueue.clearQueueForCancellation(
-        RideRequest.fromMap(doc.data()),
+        currentRide,
       ).copyWith(status: RideStatus.cancelled);
 
       batch.set(doc.reference, {
@@ -136,9 +138,24 @@ class RideService {
         'cabBearing': null,
         'cabUpdatedAt': null,
       });
+      _joinRequestStore.syncQueueProjectionInBatch(
+        batch: batch,
+        rideRef: doc.reference,
+        previousJoinRequests: currentRide.joinRequests,
+        nextJoinRequests: cancelledRide.joinRequests,
+        now: timestamp,
+      );
     }
 
-    batch.set(_rides.doc(ride.id), ride.toMap());
+    final publishingRideRef = _rides.doc(ride.id);
+    batch.set(publishingRideRef, ride.toMap());
+    _joinRequestStore.syncQueueProjectionInBatch(
+      batch: batch,
+      rideRef: publishingRideRef,
+      previousJoinRequests: existingById[ride.id]?.joinRequests ?? const [],
+      nextJoinRequests: ride.joinRequests,
+      now: timestamp,
+    );
     await batch.commit();
   }
 
@@ -175,13 +192,15 @@ class RideService {
     final rideRef = _rides.doc(rideId);
 
     await _firestore.runTransaction((transaction) async {
+      final timestamp = DateTime.now();
       final snapshot = await transaction.get(rideRef);
       if (!snapshot.exists || snapshot.data() == null) {
         throw StateError('Ride not found.');
       }
 
+      final currentRide = RideRequest.fromMap(snapshot.data()!);
       final mutation = RideRequestQueue.enqueueRequest(
-        RideRequest.fromMap(snapshot.data()!),
+        currentRide,
         requesterId: requesterId,
         requesterName: requesterName,
         requesterGender: requesterGender,
@@ -191,6 +210,13 @@ class RideService {
         requesterPickupLng: requesterPickupLng,
       );
       transaction.set(rideRef, mutation.ride.toMap());
+      _joinRequestStore.syncQueueProjectionInTransaction(
+        transaction: transaction,
+        rideRef: rideRef,
+        previousJoinRequests: currentRide.joinRequests,
+        nextJoinRequests: mutation.ride.joinRequests,
+        now: timestamp,
+      );
     });
   }
 
@@ -206,24 +232,14 @@ class RideService {
       actingUserId: currentUid,
     );
 
-    final rideRef = _rides.doc(rideId);
-    var changed = false;
-
-    await _firestore.runTransaction((transaction) async {
-      final snapshot = await transaction.get(rideRef);
-      if (!snapshot.exists || snapshot.data() == null) return;
-
-      final mutation = RideRequestQueue.cancelPendingRequest(
-        RideRequest.fromMap(snapshot.data()!),
+    return _runQueueMutation(
+      rideId: rideId,
+      authorize: (_) {},
+      mutate: (ride) => RideRequestQueue.cancelPendingRequest(
+        ride,
         requesterId: effectiveRequesterId,
-      );
-      if (!mutation.changed) return;
-
-      changed = true;
-      transaction.set(rideRef, mutation.ride.toMap());
-    });
-
-    return changed;
+      ),
+    );
   }
 
   static Future<bool> acceptRequest(
@@ -233,27 +249,16 @@ class RideService {
   }) async {
     if (!_canUseFirestore) return false;
     final currentUid = _requireCurrentUserId();
-    final rideRef = _rides.doc(rideId);
-    var changed = false;
-
-    await _firestore.runTransaction((transaction) async {
-      final snapshot = await transaction.get(rideRef);
-      if (!snapshot.exists || snapshot.data() == null) return;
-
-      final ride = RideRequest.fromMap(snapshot.data()!);
-      ensureHostMutationAllowed(ride: ride, actingUserId: currentUid);
-      final mutation = RideRequestQueue.acceptRequest(
+    return _runQueueMutation(
+      rideId: rideId,
+      authorize: (ride) =>
+          ensureHostMutationAllowed(ride: ride, actingUserId: currentUid),
+      mutate: (ride) => RideRequestQueue.acceptRequest(
         ride,
         requesterId: requesterId,
         waitForAnotherRider: waitForAnotherRider,
-      );
-      if (!mutation.changed) return;
-
-      changed = true;
-      transaction.set(rideRef, mutation.ride.toMap());
-    });
-
-    return changed;
+      ),
+    );
   }
 
   static Future<bool> declineRequest(
@@ -263,51 +268,29 @@ class RideService {
   }) async {
     if (!_canUseFirestore) return false;
     final currentUid = _requireCurrentUserId();
-    final rideRef = _rides.doc(rideId);
-    var changed = false;
-
-    await _firestore.runTransaction((transaction) async {
-      final snapshot = await transaction.get(rideRef);
-      if (!snapshot.exists || snapshot.data() == null) return;
-
-      final ride = RideRequest.fromMap(snapshot.data()!);
-      ensureHostMutationAllowed(ride: ride, actingUserId: currentUid);
-      final mutation = RideRequestQueue.declineRequest(
+    return _runQueueMutation(
+      rideId: rideId,
+      authorize: (ride) =>
+          ensureHostMutationAllowed(ride: ride, actingUserId: currentUid),
+      mutate: (ride) => RideRequestQueue.declineRequest(
         ride,
         requesterId: requesterId,
         reason: reason,
-      );
-      if (!mutation.changed) return;
-
-      changed = true;
-      transaction.set(rideRef, mutation.ride.toMap());
-    });
-
-    return changed;
+      ),
+    );
   }
 
   static Future<bool> cancelJoinedRide(String rideId) async {
     if (!_canUseFirestore) return false;
     final currentUid = _requireCurrentUserId();
-
-    final rideRef = _rides.doc(rideId);
-    var changed = false;
-
-    await _firestore.runTransaction((transaction) async {
-      final snapshot = await transaction.get(rideRef);
-      if (!snapshot.exists || snapshot.data() == null) return;
-
-      final mutation = RideRequestQueue.cancelJoinedRide(
-        RideRequest.fromMap(snapshot.data()!),
+    return _runQueueMutation(
+      rideId: rideId,
+      authorize: (_) {},
+      mutate: (ride) => RideRequestQueue.cancelJoinedRide(
+        ride,
         riderId: currentUid,
-      );
-      if (!mutation.changed) return;
-
-      changed = true;
-      transaction.set(rideRef, mutation.ride.toMap());
-    });
-
-    return changed;
+      ),
+    );
   }
 
   static Future<void> updateCabSyncState({
@@ -350,21 +333,6 @@ class RideService {
       final ride = RideRequest.fromMap(snapshot.data()!);
       ensureHostMutationAllowed(ride: ride, actingUserId: currentUid);
       transaction.update(rideRef, {'status': status.name});
-    });
-  }
-
-  static Future<void> cancelRide(String rideId) async {
-    if (!_canUseFirestore) return;
-    final currentUid = _requireCurrentUserId();
-    final rideRef = _rides.doc(rideId);
-    await _firestore.runTransaction((transaction) async {
-      final snapshot = await transaction.get(rideRef);
-      if (!snapshot.exists || snapshot.data() == null) {
-        throw StateError('Ride not found.');
-      }
-      final ride = RideRequest.fromMap(snapshot.data()!);
-      ensureHostMutationAllowed(ride: ride, actingUserId: currentUid);
-      transaction.update(rideRef, {'status': RideStatus.cancelled.name});
     });
   }
 

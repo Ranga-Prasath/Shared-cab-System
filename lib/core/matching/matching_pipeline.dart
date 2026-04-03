@@ -133,7 +133,10 @@ class MatchingPipeline {
       );
       if (overlapOrder != 0) return overlapOrder;
 
-      return right.ride.createdAt.compareTo(left.ride.createdAt);
+      final createdAtOrder = right.ride.createdAt.compareTo(left.ride.createdAt);
+      if (createdAtOrder != 0) return createdAtOrder;
+
+      return left.ride.id.compareTo(right.ride.id);
     });
 
     return results;
