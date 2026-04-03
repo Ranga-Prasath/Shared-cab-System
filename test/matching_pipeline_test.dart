@@ -94,7 +94,7 @@ void main() {
         id: 'female',
         userId: 'user-f',
         userGender: 'female',
-        departureTime: baseTime.add(const Duration(minutes: 5)),
+        departureTime: baseTime,
         createdAt: baseTime.subtract(const Duration(minutes: 1)),
         routePath: _route([
           (13.0000, 80.0000),
@@ -106,7 +106,7 @@ void main() {
         id: 'male',
         userId: 'user-m',
         userGender: 'male',
-        departureTime: baseTime.add(const Duration(minutes: 5)),
+        departureTime: baseTime,
         createdAt: baseTime.subtract(const Duration(minutes: 1)),
         routePath: _route([
           (13.0000, 80.0000),
@@ -124,42 +124,45 @@ void main() {
       expect(results.single.reasons, contains('Same-gender night match'));
     });
 
-    test('applies temporal and capacity constraints before scoring', () {
-      final validRide = _buildRide(
-        id: 'valid',
-        userId: 'user-valid',
-        userGender: 'female',
-        departureTime: baseTime.add(const Duration(minutes: 10)),
-        createdAt: baseTime.subtract(const Duration(minutes: 3)),
-        routePath: referenceRide.routePath,
-      );
-      final lateRide = _buildRide(
-        id: 'late',
-        userId: 'user-late',
-        userGender: 'female',
-        departureTime: baseTime.add(const Duration(minutes: 25)),
-        createdAt: baseTime.subtract(const Duration(minutes: 3)),
-        routePath: referenceRide.routePath,
-      );
-      final fullRide = _buildRide(
-        id: 'full',
-        userId: 'user-full',
-        userGender: 'female',
-        departureTime: baseTime.add(const Duration(minutes: 10)),
-        createdAt: baseTime.subtract(const Duration(minutes: 3)),
-        routePath: referenceRide.routePath,
-        maxCoRiders: 1,
-        coRiderIds: const ['taken-seat'],
-      );
+    test(
+      'requires same departure minute and respects capacity constraints',
+      () {
+        final validRide = _buildRide(
+          id: 'valid',
+          userId: 'user-valid',
+          userGender: 'female',
+          departureTime: baseTime,
+          createdAt: baseTime.subtract(const Duration(minutes: 3)),
+          routePath: referenceRide.routePath,
+        );
+        final lateRide = _buildRide(
+          id: 'late',
+          userId: 'user-late',
+          userGender: 'female',
+          departureTime: baseTime.add(const Duration(minutes: 1)),
+          createdAt: baseTime.subtract(const Duration(minutes: 3)),
+          routePath: referenceRide.routePath,
+        );
+        final fullRide = _buildRide(
+          id: 'full',
+          userId: 'user-full',
+          userGender: 'female',
+          departureTime: baseTime,
+          createdAt: baseTime.subtract(const Duration(minutes: 3)),
+          routePath: referenceRide.routePath,
+          maxCoRiders: 1,
+          coRiderIds: const ['taken-seat'],
+        );
 
-      final results = MatchingPipeline.evaluate(
-        candidates: [validRide, lateRide, fullRide],
-        context: buildContext(referenceRide: referenceRide),
-      );
+        final results = MatchingPipeline.evaluate(
+          candidates: [validRide, lateRide, fullRide],
+          context: buildContext(referenceRide: referenceRide),
+        );
 
-      expect(results.map((match) => match.ride.id), ['valid']);
-      expect(results.single.departureDifferenceMinutes, 10);
-    });
+        expect(results.map((match) => match.ride.id), ['valid']);
+        expect(results.single.departureDifferenceMinutes, 0);
+      },
+    );
 
     test(
       'uses current location for discovery mode when no reference ride exists',
@@ -168,7 +171,7 @@ void main() {
           id: 'nearby',
           userId: 'user-nearby',
           userGender: 'female',
-          departureTime: baseTime.add(const Duration(minutes: 5)),
+          departureTime: baseTime,
           createdAt: baseTime.subtract(const Duration(minutes: 4)),
           routePath: _route([(13.0000, 80.0000), (13.0100, 80.0100)]),
         );
@@ -176,7 +179,7 @@ void main() {
           id: 'far',
           userId: 'user-far',
           userGender: 'female',
-          departureTime: baseTime.add(const Duration(minutes: 5)),
+          departureTime: baseTime,
           createdAt: baseTime.subtract(const Duration(minutes: 4)),
           routePath: _route([(12.7000, 79.7000), (12.7100, 79.7100)]),
         );
@@ -199,7 +202,7 @@ void main() {
         id: 'candidate',
         userId: 'user-candidate',
         userGender: 'female',
-        departureTime: baseTime.add(const Duration(minutes: 5)),
+        departureTime: baseTime,
         createdAt: baseTime.subtract(const Duration(minutes: 4)),
         routePath: _route([(13.0000, 80.0000), (13.0100, 80.0100)]),
       );
@@ -217,7 +220,7 @@ void main() {
         id: 'strong',
         userId: 'user-strong',
         userGender: 'female',
-        departureTime: baseTime.add(const Duration(minutes: 5)),
+        departureTime: baseTime,
         createdAt: baseTime.subtract(const Duration(minutes: 1)),
         routePath: referenceRide.routePath,
         preferenceSnapshot: const RidePreferences(
@@ -230,7 +233,7 @@ void main() {
         id: 'weak',
         userId: 'user-weak',
         userGender: 'female',
-        departureTime: baseTime.add(const Duration(minutes: 5)),
+        departureTime: baseTime,
         createdAt: baseTime.subtract(const Duration(minutes: 1)),
         routePath: referenceRide.routePath,
         preferenceSnapshot: const RidePreferences(
@@ -258,7 +261,7 @@ void main() {
         id: 'requested',
         userId: 'user-requested',
         userGender: 'female',
-        departureTime: baseTime.add(const Duration(minutes: 5)),
+        departureTime: baseTime,
         createdAt: baseTime.subtract(const Duration(minutes: 5)),
         routePath: referenceRide.routePath,
       ).copyWith(status: RideStatus.requested);
@@ -266,7 +269,7 @@ void main() {
         id: 'stale',
         userId: 'user-stale',
         userGender: 'female',
-        departureTime: baseTime.add(const Duration(minutes: 5)),
+        departureTime: baseTime,
         createdAt: baseTime.subtract(const Duration(minutes: 45)),
         routePath: referenceRide.routePath,
       );
@@ -274,7 +277,7 @@ void main() {
         id: 'same-user',
         userId: 'user-me',
         userGender: 'female',
-        departureTime: baseTime.add(const Duration(minutes: 5)),
+        departureTime: baseTime,
         createdAt: baseTime.subtract(const Duration(minutes: 5)),
         routePath: referenceRide.routePath,
       );
@@ -292,7 +295,7 @@ void main() {
         id: 'self-recent',
         userId: 'user-me',
         userGender: 'female',
-        departureTime: baseTime.add(const Duration(minutes: 2)),
+        departureTime: baseTime,
         createdAt: baseTime.subtract(const Duration(minutes: 1)),
         routePath: referenceRide.routePath,
       );
@@ -300,7 +303,7 @@ void main() {
         id: 'self-stale',
         userId: 'user-me',
         userGender: 'female',
-        departureTime: baseTime.add(const Duration(minutes: 2)),
+        departureTime: baseTime,
         createdAt: baseTime.subtract(const Duration(minutes: 10)),
         routePath: referenceRide.routePath,
       );
@@ -308,7 +311,7 @@ void main() {
         id: 'other',
         userId: 'user-other',
         userGender: 'female',
-        departureTime: baseTime.add(const Duration(minutes: 2)),
+        departureTime: baseTime,
         createdAt: baseTime.subtract(const Duration(minutes: 1)),
         routePath: referenceRide.routePath,
       );
@@ -321,30 +324,81 @@ void main() {
       expect(results.map((match) => match.ride.id), ['other']);
     });
 
-    test('uses deterministic id tie-break when scores and timestamps are equal', () {
-      final candidateB = _buildRide(
-        id: 'ride-b',
-        userId: 'user-b',
+    test(
+      'uses deterministic id tie-break when scores and timestamps are equal',
+      () {
+        final candidateB = _buildRide(
+          id: 'ride-b',
+          userId: 'user-b',
+          userGender: 'female',
+          departureTime: baseTime,
+          createdAt: baseTime.subtract(const Duration(minutes: 3)),
+          routePath: referenceRide.routePath,
+        );
+        final candidateA = _buildRide(
+          id: 'ride-a',
+          userId: 'user-a',
+          userGender: 'female',
+          departureTime: baseTime,
+          createdAt: baseTime.subtract(const Duration(minutes: 3)),
+          routePath: referenceRide.routePath,
+        );
+
+        final results = MatchingPipeline.evaluate(
+          candidates: [candidateB, candidateA],
+          context: buildContext(referenceRide: referenceRide),
+        );
+
+        expect(results.map((match) => match.ride.id), ['ride-a', 'ride-b']);
+      },
+    );
+
+    test(
+      'rejects rides in a different minute even when less than 60s apart',
+      () {
+        final crossingMinute = _buildRide(
+          id: 'cross-minute',
+          userId: 'user-cross-minute',
+          userGender: 'female',
+          departureTime: DateTime(2026, 3, 15, 22, 1, 0),
+          createdAt: baseTime.subtract(const Duration(minutes: 2)),
+          routePath: referenceRide.routePath,
+        );
+
+        final sameMinute = _buildRide(
+          id: 'same-minute',
+          userId: 'user-same-minute',
+          userGender: 'female',
+          departureTime: DateTime(2026, 3, 15, 22, 0, 59),
+          createdAt: baseTime.subtract(const Duration(minutes: 2)),
+          routePath: referenceRide.routePath,
+        );
+
+      final referenceRideWithSecondPrecision = _buildRide(
+        id: 'reference-with-seconds',
+        userId: 'user-me',
         userGender: 'female',
-        departureTime: baseTime.add(const Duration(minutes: 5)),
-        createdAt: baseTime.subtract(const Duration(minutes: 3)),
+        departureTime: DateTime(2026, 3, 15, 22, 0, 30),
+        createdAt: baseTime.subtract(const Duration(minutes: 2)),
         routePath: referenceRide.routePath,
-      );
-      final candidateA = _buildRide(
-        id: 'ride-a',
-        userId: 'user-a',
-        userGender: 'female',
-        departureTime: baseTime.add(const Duration(minutes: 5)),
-        createdAt: baseTime.subtract(const Duration(minutes: 3)),
-        routePath: referenceRide.routePath,
+        preferenceSnapshot: const RidePreferences(
+          silentRide: true,
+          musicAllowed: false,
+          extraLuggage: true,
+        ),
       );
 
-      final results = MatchingPipeline.evaluate(
-        candidates: [candidateB, candidateA],
-        context: buildContext(referenceRide: referenceRide),
+      final context = buildContext(
+        referenceRide: referenceRideWithSecondPrecision,
       );
 
-      expect(results.map((match) => match.ride.id), ['ride-a', 'ride-b']);
-    });
+        final results = MatchingPipeline.evaluate(
+          candidates: [crossingMinute, sameMinute],
+          context: context,
+        );
+
+        expect(results.map((match) => match.ride.id), ['same-minute']);
+      },
+    );
   });
 }

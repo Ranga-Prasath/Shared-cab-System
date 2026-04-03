@@ -287,9 +287,12 @@ class RideJoinFlowCoordinator {
           .firstWhere((ride) {
             if (ride == null) return false;
             if (ride.coRiderIds.contains(requesterId)) return true;
-            return ride.joinRequestFor(requesterId) != null;
+            final request = ride.joinRequestFor(requesterId);
+            if (request == null) return false;
+            return request.status == RideJoinRequestStatus.pending ||
+                request.status == RideJoinRequestStatus.accepted;
           })
-          .timeout(const Duration(seconds: 5));
+          .timeout(const Duration(seconds: 12));
       return updatedRide != null;
     } catch (_) {
       return false;

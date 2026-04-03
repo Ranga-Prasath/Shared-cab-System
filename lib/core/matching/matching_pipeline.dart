@@ -50,7 +50,7 @@ class MatchContext {
     this.desiredDepartureTime,
     this.maxFreshnessMinutes = 30,
     this.minRouteOverlapPercent = AppConstants.routeOverlapThresholdPercent,
-    this.maxDepartureDifferenceMinutes = 15,
+    this.maxDepartureDifferenceMinutes = 0,
     this.maxDistanceToRouteKm = 5,
   });
 
@@ -133,7 +133,9 @@ class MatchingPipeline {
       );
       if (overlapOrder != 0) return overlapOrder;
 
-      final createdAtOrder = right.ride.createdAt.compareTo(left.ride.createdAt);
+      final createdAtOrder = right.ride.createdAt.compareTo(
+        left.ride.createdAt,
+      );
       if (createdAtOrder != 0) return createdAtOrder;
 
       return left.ride.id.compareTo(right.ride.id);
@@ -316,15 +318,22 @@ class _TemporalConstraint extends _MatchConstraint {
     _MatchAccumulator accumulator,
   ) {
     final referenceTime =
-        context.referenceRide?.departureTime ?? context.desiredDepartureTime;
-    if (referenceTime == null) return true;
+        context.referenceRide?.departureTime ??
+        context.desiredDepartureTime ??
+        context.now;
 
-    final differenceMinutes = candidate.departureTime
-        .difference(referenceTime)
-        .inMinutes
-        .abs();
+    final differenceMinutes = _differenceInWholeMinutes(
+      candidate.departureTime,
+      referenceTime,
+    );
     accumulator.departureDifferenceMinutes = differenceMinutes;
-    if (differenceMinutes > context.maxDepartureDifferenceMinutes) return false;
+    if (context.maxDepartureDifferenceMinutes <= 0) {
+      if (!_isSameMinute(candidate.departureTime, referenceTime)) {
+        return false;
+      }
+    } else if (differenceMinutes > context.maxDepartureDifferenceMinutes) {
+      return false;
+    }
 
     accumulator.addReason('$differenceMinutes min departure gap');
     return true;
@@ -401,16 +410,21 @@ class _MatchScorer {
       score += normalizedDistance * 35;
     }
 
-    if (accumulator.departureDifferenceMinutes != null &&
-        context.maxDepartureDifferenceMinutes > 0) {
-      final normalizedDeparture =
-          1 -
-          (accumulator.departureDifferenceMinutes!.clamp(
-                0,
-                context.maxDepartureDifferenceMinutes,
-              ) /
-              context.maxDepartureDifferenceMinutes);
-      score += normalizedDeparture * 20;
+    if (accumulator.departureDifferenceMinutes != null) {
+      if (context.maxDepartureDifferenceMinutes <= 0) {
+        if (accumulator.departureDifferenceMinutes == 0) {
+          score += 20;
+        }
+      } else {
+        final normalizedDeparture =
+            1 -
+            (accumulator.departureDifferenceMinutes!.clamp(
+                  0,
+                  context.maxDepartureDifferenceMinutes,
+                ) /
+                context.maxDepartureDifferenceMinutes);
+        score += normalizedDeparture * 20;
+      }
     }
 
     score += accumulator.preferenceCompatibilityScore * 15;
@@ -422,6 +436,18 @@ class _MatchScorer {
 
     return score;
   }
+}
+
+bool _isSameMinute(DateTime left, DateTime right) {
+  return left.year == right.year &&
+      left.month == right.month &&
+      left.day == right.day &&
+      left.hour == right.hour &&
+      left.minute == right.minute;
+}
+
+int _differenceInWholeMinutes(DateTime left, DateTime right) {
+  return left.difference(right).inMinutes.abs();
 }
 
 class _MatchAccumulator {
